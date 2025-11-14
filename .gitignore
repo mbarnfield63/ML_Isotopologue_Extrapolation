@@ -1,0 +1,19 @@
+# Pixi / Conda
+.pixi/
+pixi.lock
+
+# Python
+*/__pycache__/
+*.pyc
+
+# Data
+data/
+
+# Outputs
+*.csv
+*.out
+*.err
+*.log
+
+# Misc
+scripts/hypatia/*

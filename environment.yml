@@ -1,0 +1,36 @@
+name: ML
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # --- Core & Jupyter ---
+  - python=3.10
+  - pip
+  - jupyterlab
+  - notebook
+  - ipykernel
+  # --- Data Science Stack ---
+  - pandas
+  - numpy
+  - scipy
+  - scikit-learn
+  - statsmodels
+  - h5py
+  # --- Plotting ---
+  - matplotlib
+  - seaborn
+  # --- ML/DL ---
+  - pytorch
+  - torchvision
+  - torchaudio
+  - keras
+  - triton
+  - pytorch-cuda=11.8
+  # --- HPC ---
+  - mpi4py
+  # --- Utilities ---
+  - tqdm
+  - requests
+  # --- Pip-only packages ---
+  - pip:
+      - adjusttext
