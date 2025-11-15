@@ -1,0 +1,72 @@
+run_name: "co2_basic"
+output_dir: "outputs/" # This will be created by the main script
+
+data:
+  # List of CSVs to load. If >1, they will be auto-combined.
+  paths: 
+    - "data/processed/CO2_minor_isos_ma.txt"
+  
+  target_col: "Error_IE"
+  
+  # All columns to EXCLUDE from features
+  not_feature_cols:
+    - "Error_IE"        # Target
+    - "E_Ma_iso"        # True value for post-analysis
+    - "E_IE_original"   # Original value for post-analysis
+    - "iso"             # Isotopologue identifier
+    - "ID"              # Other identifiers
+    - "unc"
+    - "??"
+    - "Source"
+    - "match_key"
+
+  # All columns that need scaling
+  scaled_cols:
+    - "E_IE"
+    - "E_Ca_iso"
+    - "E_Ca_main"
+    - "E_Ma_main"
+    - "gtot"
+    - "J"
+
+experiment:
+  type: "single_run"  # Options: 'single_run', 'multi_seed', or 'cv'
+  seed: 42
+  train_size: 0.7
+  val_size: 0.1  
+  test_size: 0.2 
+
+model:
+  name: "CO2_Basic"
+  params:
+    dropout: 0.3
+
+training:
+  epochs: 100
+  batch_size: 512
+  learning_rate: 1e-3
+  init_bias_to_mean: True
+  loss_function: "SmoothL1Loss"  # Options: 'MSELoss', 'L1Loss', 'SmoothL1Loss'
+  optimizer: "Adam"               # Options: 'SGD', 'Adam'
+  early_stopping:
+    enabled: True
+    patience: 10
+    delta: 1e-4
+
+analysis:
+  post_processing:
+    enabled: true  # Set to false for simple models
+    true_energy_col: "E_Ma_iso"
+    original_energy_col: "E_IE_original"
+    nn_correction_col: "NN_correction"
+
+  isotopologue_analysis:
+    enabled: true
+    group_by_col: "iso"
+    
+    # List specific isos to analyze, or [] for all
+    isos_of_interest: []
+  
+  feature_importance:
+    enabled: true
+    metric: 'mae'  # Options: 'mae', 'rmse'

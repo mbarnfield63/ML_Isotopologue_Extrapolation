@@ -1,7 +1,3 @@
-# Pixi / Conda
-.pixi/
-pixi.lock
-
 # Python
 */__pycache__/
 *.pyc
@@ -10,10 +6,7 @@ pixi.lock
 data/
 
 # Outputs
-*.csv
-*.out
-*.err
-*.log
+outputs/
 
 # Misc
 scripts/hypatia/*
