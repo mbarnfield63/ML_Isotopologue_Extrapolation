@@ -65,17 +65,10 @@ def run_single_train_test(
     train_ds = MoleculeDataset(train_df, feature_cols, target_col)
     val_ds = MoleculeDataset(val_df, feature_cols, target_col)
     test_ds = MoleculeDataset(test_df, feature_cols, target_col)
-    pin_memory = device.type == "cuda"
-    train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True, pin_memory=pin_memory
-    )
-    # Don't shuffle validation or test data
-    val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_memory
-    )
-    test_loader = DataLoader(
-        test_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_memory
-    )
+    
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=batch_size)
+    test_loader = DataLoader(test_ds, batch_size=batch_size)
 
     # Get criterion and optimizer from factories
     criterion = get_loss_function(config)

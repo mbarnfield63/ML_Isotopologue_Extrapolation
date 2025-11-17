@@ -100,6 +100,15 @@ def load_data(config):
         print(f"Loaded single dataset with {len(combined_df)} rows.")
 
     # === 2. Pre-processing ===
+    # Drop specified isotopologues to filter out
+    filter_out_isos = data_config.get('filter_out_isos', []) or []
+    if filter_out_isos:
+        initial_count = len(combined_df)
+        combined_df = combined_df[~combined_df['iso'].isin(filter_out_isos)]
+        dropped_count = initial_count - len(combined_df)
+        print(f"    Dropped {dropped_count} rows based on filtered out isotopologues: {filter_out_isos}")
+        print(f"    New dataset size: {len(combined_df)} rows.")
+
     # Drop rows with NaN in any critical columns (target or non-features)
     target_col = data_config['target_col']
     # Ensure not_feature_cols is a list, even if empty or None

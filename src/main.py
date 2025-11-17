@@ -74,7 +74,7 @@ def main(config_path: str):
         # --- 4a. Run Optional Post-Processing ---
         pp_config = analysis_config.get("post_processing", {})
         if pp_config.get("enabled", False):
-            print("Running post-processing (as per config)...")
+            print("\nRunning post-processing...")
             pred_df = run_post_processing(pred_df, pp_config, scaler, config)
         else:
             print("Skipping post-processing (not enabled in config).")
@@ -82,9 +82,9 @@ def main(config_path: str):
         # --- 4b. Run Optional Grouped Error Analysis ---
         iso_config = analysis_config.get("isotopologue_analysis", {})
         if iso_config.get("enabled", False):
-            print("Running grouped error analysis (as per config)...")
+            print("\nRunning grouped error analysis...")
             iso_results_df = analyze_grouped_errors(pred_df, iso_config, output_dir)
-            print("Grouped Error Analysis Summary:")
+            print("\nGrouped Error Analysis Summary:")
             if iso_results_df is not None:
                 print(iso_results_df)
         else:
@@ -94,7 +94,7 @@ def main(config_path: str):
         fi_config = analysis_config.get("feature_importance", {})
         if fi_config.get("enabled", False) and results["model"] and not test_df.empty:
 
-            print("Calculating feature importance...")
+            print("\nCalculating feature importance...")
             test_ds = MoleculeDataset(test_df, feature_cols, target_col)
             test_loader = torch.utils.data.DataLoader(
                 test_ds,
@@ -107,14 +107,13 @@ def main(config_path: str):
                 test_loader,
                 device,
                 feature_cols,
-                criterion=get_loss_function(config),
                 metric=fi_config.get("metric", "mae"),
             )
             fi_path = os.path.join(output_dir, "CSVs", "feature_importance.csv")
             feature_importance_df.to_csv(fi_path, index=False)
             print(f"Feature importance saved to {fi_path}")
         else:
-            print("Skipping feature importance.")
+            print("Skipping feature importance (not enabled in config).")
 
     # === 5. Plotting (To be added) ===
     print("\n" + "=" * 60)

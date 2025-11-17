@@ -12,7 +12,6 @@ data:
   not_feature_cols:
     - "Error_IE"        # Target
     - "E_Ma_iso"        # True value for post-analysis
-    - "E_IE_original"   # Original value for post-analysis
     - "iso"             # Isotopologue identifier
     - "ID"              # Other identifiers
     - "unc"
@@ -29,6 +28,9 @@ data:
     - "gtot"
     - "J"
 
+  # Isos to FILTER OUT from the dataset
+  filter_out_isos: [636]  # e.g., [636]
+
 experiment:
   type: "single_run"  # Options: 'single_run', 'multi_seed', or 'cv'
   seed: 42
@@ -44,20 +46,18 @@ model:
 training:
   epochs: 100
   batch_size: 512
-  learning_rate: 1e-3
+  learning_rate: 5e-4
   init_bias_to_mean: True
   loss_function: "SmoothL1Loss"  # Options: 'MSELoss', 'L1Loss', 'SmoothL1Loss'
   optimizer: "Adam"               # Options: 'SGD', 'Adam'
   early_stopping:
-    enabled: True
-    patience: 10
-    delta: 1e-4
+    enabled: False
 
 analysis:
   post_processing:
     enabled: true  # Set to false for simple models
     true_energy_col: "E_Ma_iso"
-    original_energy_col: "E_IE_original"
+    original_energy_col: "E_IE"
     nn_correction_col: "NN_correction"
 
   isotopologue_analysis:

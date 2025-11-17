@@ -129,14 +129,24 @@ def analyze_grouped_errors(
         and "Corrected_abs_error" in pred_df.columns
     )
 
+    # Check if simple error columns exist (should be added in main.py)
+    has_simple_error_cols = (
+        "Error" in pred_df.columns and "Abs_Error" in pred_df.columns
+    )
+
     if has_pp_cols:
         print(
             f"  Analyzing detailed (post-processed) errors, grouped by '{group_by_col}'."
         )
-    else:
+    elif has_simple_error_cols:
         print(
             f"  Analyzing simple errors (y_true vs y_pred), grouped by '{group_by_col}'."
         )
+    else:
+        print(
+            f"  WARNING: No error columns found ('Error' or 'Original_error'). Skipping grouped analysis."
+        )
+        return pd.DataFrame()
 
     results = {}
 
@@ -154,24 +164,32 @@ def analyze_grouped_errors(
         group_data = {"Group": group, "Count": mask.sum()}
 
         if has_pp_cols:
-            # Report on detailed "IE" workflow errors
+            # Report on detailed "IE" workflow errors           
+            mean_orig_mae = pred_df.loc[mask, "Original_abs_error"].mean()
+            mean_corr_mae = pred_df.loc[mask, "Corrected_abs_error"].mean()
+            mean_error_reduction = mean_orig_mae - mean_corr_mae
+            
+            # This calculation is now robust to divide-by-zero or outliers
+            with np.errstate(divide='ignore', invalid='ignore'):
+                mean_pct_reduction = 100 * (mean_error_reduction / mean_orig_mae)
+                if not np.isfinite(mean_pct_reduction):
+                    mean_pct_reduction = 0.0  # Set to 0 if mean_orig_mae was 0
+
             group_data.update(
                 {
-                    "Original MAE": pred_df.loc[mask, "Original_abs_error"].mean(),
-                    "ML Corrected MAE": pred_df.loc[mask, "Corrected_abs_error"].mean(),
+                    "Original MAE": mean_orig_mae,
+                    "ML Corrected MAE": mean_corr_mae,
                     "Original RMSE": np.sqrt(
                         np.mean(pred_df.loc[mask, "Original_error"] ** 2)
                     ),
                     "ML Corrected RMSE": np.sqrt(
                         np.mean(pred_df.loc[mask, "Corrected_error"] ** 2)
                     ),
-                    "Mean Error Reduction": pred_df.loc[mask, "Error_reduction"].mean(),
-                    "Mean Pct Reduction": pred_df.loc[
-                        mask, "Error_reduction_pct"
-                    ].mean(),
+                    "Mean Error Reduction": mean_error_reduction,
+                    "Mean Pct Reduction": mean_pct_reduction,
                 }
             )
-        else:
+        elif has_simple_error_cols:
             # Report on simple, baseline errors
             group_data.update(
                 {
@@ -187,7 +205,23 @@ def analyze_grouped_errors(
         print("  No data found for any specified groups.")
         return pd.DataFrame()
 
-    df = pd.DataFrame.from_dict(results, orient="index")
+    df = pd.DataFrame.from_dict(results, orient="index").reset_index(drop=True)
+
+    # --- Define column order for consistent CSVs ---
+    if has_pp_cols:
+        cols_order = [
+            "Group", "Count", "Original MAE", "ML Corrected MAE",
+            "Original RMSE", "ML Corrected RMSE",
+            "Mean Error Reduction", "Mean Pct Reduction",
+        ]
+    elif has_simple_error_cols:
+        cols_order = ["Group", "Count", "MAE", "RMSE", "Mean Error"]
+    else:
+        cols_order = ["Group", "Count"]  # Fallback
+
+    # Filter for columns that actually exist
+    final_cols = [col for col in cols_order if col in df.columns]
+    df = df[final_cols]
 
     report_path = os.path.join(output_dir, "CSVs", "grouped_error_report.csv")
     df.to_csv(report_path, index=False)
@@ -201,7 +235,6 @@ def get_feature_importance(
     dataloader,
     device: torch.device,
     feature_cols: list[str],
-    criterion: torch.nn.Module,
     metric: str = "mae",
 ):
     """
