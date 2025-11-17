@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import pandas as pd
 import os
 import shutil
 import time
@@ -13,10 +14,9 @@ from .analysis import (
     analyze_grouped_errors,
     get_feature_importance,
 )
-from .training import get_loss_function
-from .utils import load_config, create_output_dir, setup_reproducibility
 
-# TODO from .plotting import plot_all_results
+from .plotting import plot_all_results
+from .utils import load_config, create_output_dir, setup_reproducibility
 
 
 def main(config_path: str):
@@ -60,6 +60,8 @@ def main(config_path: str):
     print("=" * 60)
 
     pred_df = results["test_predictions_df"]
+    iso_results_df = pd.DataFrame()
+    overall_metrics = {}
 
     if pred_df.empty:
         print("No predictions generated. Skipping analysis.")
@@ -76,6 +78,16 @@ def main(config_path: str):
         if pp_config.get("enabled", False):
             print("\nRunning post-processing...")
             pred_df = run_post_processing(pred_df, pp_config, scaler, config)
+
+            if "Original_abs_error" in pred_df.columns:
+                try:
+                    mean_orig_mae = pred_df["Original_abs_error"].mean()
+                    mean_corr_mae = pred_df["Corrected_abs_error"].mean()
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        pct_imp = 100 * (mean_orig_mae - mean_corr_mae) / mean_orig_mae
+                        overall_metrics["overall_pct_improvement"] = pct_imp if np.isfinite(pct_imp) else 0.0
+                except Exception as e:
+                    print(f"  Could not calculate overall improvement: {e}")
         else:
             print("Skipping post-processing (not enabled in config).")
 
@@ -119,8 +131,17 @@ def main(config_path: str):
     print("\n" + "=" * 60)
     print("STEP 4: PLOTTING RESULTS")
     print("=" * 60)
-    # TODO: plot_all_results(results, pred_df, iso_results_df, output_dir)
-    print("(Plotting functions to be ported to src/plotting.py)")
+    if plot_all_results is not None:
+        plot_all_results(
+            results=results,
+            pred_df=pred_df,
+            iso_results_df=iso_results_df,
+            config=config,
+            overall_metrics=overall_metrics,
+            output_dir=output_dir,
+        )
+    else:
+        print("Skipping plotting (src.plotting module not found).")
 
     # === 6. Save Final Outputs ===
     print("\n" + "=" * 60)

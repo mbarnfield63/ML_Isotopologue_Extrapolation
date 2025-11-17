@@ -46,7 +46,7 @@ model:
 training:
   epochs: 100
   batch_size: 512
-  learning_rate: 5e-4
+  learning_rate: 1e-3
   init_bias_to_mean: True
   loss_function: "SmoothL1Loss"  # Options: 'MSELoss', 'L1Loss', 'SmoothL1Loss'
   optimizer: "Adam"               # Options: 'SGD', 'Adam'
@@ -70,3 +70,16 @@ analysis:
   feature_importance:
     enabled: true
     metric: 'mae'  # Options: 'mae', 'rmse'
+
+plotting:
+  enabled: true
+  group_by_col: "iso" 
+  true_energy_col: "E_Ma_iso"
+  
+  # Control which plots to generate
+  plot_loss: true
+  plot_pred_vs_true: true
+  plot_metric_bars: true
+  plot_residual_hist: true
+  plot_residual_boxplots: true
+  plot_iso_residuals: true
