@@ -210,13 +210,9 @@ def run_cross_validation(
     print(f"Using Optimizer: {train_config.get('optimizer', 'Adam')}")
     print(f"Using Loss Function: {train_config.get('loss_function', 'SmoothL1Loss')}")
 
-    # === CHANGED: Use StratifiedKFold ===
-    # This is the key change to address the rare isotopologue problem.
+    # This is the key to address the rare isotopologue problem.
     # We will stratify on the 'iso' column. This guarantees that each
     # fold has the same *proportion* of each isotopologue as the full dataset.
-
-    # We assume the 'iso' column is used for stratification.
-    # This column must be in the dataframe (i.e., in 'not_feature_cols').
     stratify_on_col = "iso"
 
     if stratify_on_col not in full_df.columns:
@@ -234,14 +230,13 @@ def run_cross_validation(
 
     print("=" * 60)
 
-    # === CHANGED ===
-    # We now loop over the 'split_iterator' which is either KFold or StratifiedKFold
+    # Loop over the 'split_iterator' which is either KFold or StratifiedKFold
     for fold, (train_idx, val_idx) in enumerate(split_iterator):
         print(f"\n=== Fold {fold+1}/{k_folds} ===")
         train_df_fold = full_df.iloc[train_idx].copy()
         val_df_fold = full_df.iloc[val_idx].copy()
 
-        # Scaler must be fit *inside* the loop
+        # Scaler must be fit inside the loop
         scaler = StandardScaler()
         scaled_cols = config["data"].get("scaled_cols", []) or []
         valid_scaled_cols = [col for col in scaled_cols if col in feature_cols]
