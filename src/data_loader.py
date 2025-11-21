@@ -1,57 +1,70 @@
 import pandas as pd
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 
 
 class MoleculeDataset(Dataset):
     """
     Generic Dataset for molecular energy regression.
-    This is adapted from the CO2Dataset in the original repository.
-
+    Updated to support molecule and isotopologue indices for embedding models.
     """
 
-    def __init__(self, df, feature_cols, target_col):
+    def __init__(self, df, feature_cols, target_col, mol_idx_col=None, iso_idx_col=None):
         """
         Args:
             df (pd.DataFrame): DataFrame containing the data.
             feature_cols (list[str]): List of feature column names.
             target_col (str): The name of the target column.
+            mol_idx_col (str, optional): Name of the encoded molecule index column.
+            iso_idx_col (str, optional): Name of the encoded isotopologue index column.
         """
         self.X = df[feature_cols].values.astype(np.float32)
         self.y = df[target_col].values.astype(np.float32).reshape(-1, 1)
+        
+        # Store indices if provided
+        self.mol_idx = None
+        self.iso_idx = None
+        
+        if mol_idx_col and mol_idx_col in df.columns:
+            self.mol_idx = torch.tensor(df[mol_idx_col].values.astype(np.int64))
+            
+        if iso_idx_col and iso_idx_col in df.columns:
+            self.iso_idx = torch.tensor(df[iso_idx_col].values.astype(np.int64))
 
     def __len__(self):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return (
-            torch.from_numpy(self.X[idx]),
-            torch.from_numpy(self.y[idx]),
-        )
+        # Basic return: X, y
+        items = [torch.from_numpy(self.X[idx]), torch.from_numpy(self.y[idx])]
+        
+        # Add indices if they exist (for combined regressors)        
+        if self.mol_idx is not None:
+            items.append(self.mol_idx[idx])
+        else:
+            items.append(torch.tensor(-1)) # Dummy value
+            
+        if self.iso_idx is not None:
+            items.append(self.iso_idx[idx])
+        else:
+            items.append(torch.tensor(-1)) # Dummy value
+            
+        return tuple(items)
 
 
 def load_data(config):
     """
     Loads, combines, splits, and scales data based on the config file.
-
-    This function implements the new logic for:
-    1. Auto-combining multiple CSVs listed in `data.paths`.
-    2. Dynamically determining features using `data.not_feature_cols`.
-
-    Args:
-        config (dict): The loaded YAML config file.
+    Now handles molecule/iso encoding.
 
     Returns:
         tuple: (
-            train_df (pd.DataFrame),
-            val_df (pd.DataFrame),
-            test_df (pd.DataFrame),
-            feature_cols (list[str]),
-            target_col (str),
-            scaler (StandardScaler)
+            train_df, val_df, test_df, 
+            feature_cols, target_col, scaler,
+            n_molecules, n_isos
         )
     """
     data_config = config['data']
@@ -60,15 +73,14 @@ def load_data(config):
     # === 1. Load and Combine Data ===
     paths = data_config['paths']
     if not isinstance(paths, list):
-        paths = [paths]  # Ensure it's a list
+        paths = [paths]
 
     all_dfs = []
     all_cols = set()
 
     print("Loading data from paths:")
     for path in paths:
-        if not path:  # Skip empty path entries
-            continue
+        if not path: continue # Skip empty path entries
         print(f"- {path}")
         try:
             df = pd.read_csv(path)
@@ -79,11 +91,11 @@ def load_data(config):
 
     if not all_dfs:
         raise FileNotFoundError(
-            "No valid data files were found. Check `data.paths` in your config.")
+            "No valid data files were found. Check `data.paths` in your config."
+        )
 
     all_cols_list = sorted(list(all_cols))
-    combined_df = None
-
+    
     if len(all_dfs) > 1:
         print("Multiple data paths found. Combining datasets...")
         processed_dfs = []
@@ -91,59 +103,82 @@ def load_data(config):
             # Re-index to include all columns, fill missing with 0.0
             df = df.reindex(columns=all_cols_list, fill_value=0.0)
             processed_dfs.append(df)
-
         combined_df = pd.concat(processed_dfs, ignore_index=True)
         print(
-            f"Combined dataset created with {len(combined_df)} rows and {len(all_cols_list)} columns.")
+            f"Combined dataset created with {len(combined_df)} rows, {len(all_cols_list)} columns."
+        )
     else:
         combined_df = all_dfs[0]
         print(f"Loaded single dataset with {len(combined_df)} rows.")
 
-    # === 2. Pre-processing ===
-    # Drop specified isotopologues to filter out
+    # === 2. Pre-processing & Filtering ===
+    target_col = data_config['target_col']
+    not_feature_cols_config = data_config.get('not_feature_cols', []) or []
+    
+    # Filter by isotopologues if specified
     filter_out_isos = data_config.get('filter_out_isos', []) or []
     if filter_out_isos:
         initial_count = len(combined_df)
         combined_df = combined_df[~combined_df['iso'].isin(filter_out_isos)]
-        dropped_count = initial_count - len(combined_df)
-        print(f"    Dropped {dropped_count} rows based on filtered out isotopologues: {filter_out_isos}")
-        print(f"    New dataset size: {len(combined_df)} rows.")
+        dropped = initial_count - len(combined_df)
+        if dropped > 0:
+            print(f"Dropped {dropped} rows where iso in {filter_out_isos}")
 
-    # Drop rows with NaN in any critical columns (target or non-features)
-    target_col = data_config['target_col']
-    # Ensure not_feature_cols is a list, even if empty or None
-    not_feature_cols_config = data_config.get('not_feature_cols', []) or []
-
+    # Drop NaNs
     critical_cols = [target_col] + not_feature_cols_config
-    # Filter out any None or empty strings from critical_cols
-    critical_cols = [
-        col for col in critical_cols if col and col in combined_df.columns]
-
-    initial_count = len(combined_df)
+    critical_cols = [col for col in critical_cols if col and col in combined_df.columns]
+    
     if critical_cols:
+        initial_count = len(combined_df)
         combined_df = combined_df.dropna(subset=critical_cols)
-        dropped_rows = initial_count - len(combined_df)
-        if dropped_rows > 0:
-            print(
-                f"Dropped {dropped_rows} rows containing NaN values in critical columns.")
+        if len(combined_df) < initial_count:
+            print(f"Dropped {initial_count - len(combined_df)} rows with NaNs.")
 
     # === 3. Determine Feature Columns ===
     # This section implements the `not_feature_cols` logic
     all_cols_in_df = set(combined_df.columns)
     not_feature_cols_set = set(not_feature_cols_config)
     not_feature_cols_set.add(target_col)
-
-    # Determine feature columns dynamically
-    feature_cols = [
-        col for col in all_cols_in_df if col not in not_feature_cols_set]
-    feature_cols.sort()  # For consistency
-
+    
+    feature_cols = [col for col in all_cols_in_df if col not in not_feature_cols_set]
+    feature_cols.sort()
     print(f"Determined {len(feature_cols)} feature columns.")
-    if len(feature_cols) < 5:  # Just a friendly warning
-        print(f"  Features: {feature_cols}")
 
-    # === 4. Train/Val/Test Split ===
-    # Get split sizes from config with defaults
+    # === 4. Encode Molecule/Iso Indices ===
+    # Required for embedding layers in combination regressors
+    mol_col = data_config.get('molecule_col', 'molecule') # Default column name 'molecule'
+    iso_col = data_config.get('iso_col', 'iso')           # Default column name 'iso'
+    
+    n_molecules = 0
+    n_isos = 0
+    
+    # Handle Molecule Index
+    if mol_col in combined_df.columns:
+        # Even if numeric, encoding required to ensure 0 to N-1 contiguous indices for Embeddings
+        print(f"Encoding molecule column '{mol_col}'...")
+        combined_df['molecule_idx_encoded'] = LabelEncoder().fit_transform(combined_df[mol_col].astype(str))
+        data_config['molecule_idx_col'] = 'molecule_idx_encoded'
+        n_molecules = combined_df['molecule_idx_encoded'].nunique()
+        print(f"Found {n_molecules} unique molecules.")
+    else:
+        # Fallback: if no molecule col, assume 1 molecule (idx 0)
+        combined_df['molecule_idx_encoded'] = 0
+        data_config['molecule_idx_col'] = 'molecule_idx_encoded'
+        n_molecules = 1
+
+    # Handle Iso Index
+    if iso_col in combined_df.columns:
+        print(f"Encoding isotopologue column '{iso_col}' to 0..N indices...")
+        combined_df['iso_idx_encoded'] = LabelEncoder().fit_transform(combined_df[iso_col].astype(str))
+        data_config['iso_idx_col'] = 'iso_idx_encoded'
+        n_isos = combined_df['iso_idx_encoded'].nunique()
+        print(f"Found {n_isos} unique isotopologues.")
+    else:
+        combined_df['iso_idx_encoded'] = 0
+        data_config['iso_idx_col'] = 'iso_idx_encoded'
+        n_isos = 1
+        
+    # === 5. Train/Val/Test Split ===
     train_size = exp_config.get('train_size', 0.7)
     val_size = exp_config.get('val_size', 0.1)
     test_size = exp_config.get('test_size', 0.2)
@@ -182,42 +217,26 @@ def load_data(config):
         val_df = pd.DataFrame(columns=combined_df.columns)
         test_df = pd.DataFrame(columns=combined_df.columns)
 
-    print(
-        f"Data split: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")
+    print(f"Data split: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")
 
-    # === 5. Scaling ===
+    # === 6. Scaling ===
     scaler = StandardScaler()
     scaled_cols = data_config.get('scaled_cols', []) or []
-
-    # Find intersection of specified scaled_cols and the actual feature_cols
-    valid_scaled_cols = [
-        col for col in scaled_cols if col in feature_cols and col in train_df.columns]
-
-    if len(valid_scaled_cols) > 0:
-        print(
-            f"Fitting scaler on {len(valid_scaled_cols)} columns from training data.")
-
-        # Ensure columns are float before scaling
+    valid_scaled_cols = [col for col in scaled_cols if col in feature_cols and col in train_df.columns]
+    
+    if valid_scaled_cols:
+        print(f"Fitting scaler on {len(valid_scaled_cols)} columns...")
+        # Ensure floats
         train_df[valid_scaled_cols] = train_df[valid_scaled_cols].astype(np.float32)
-        if not val_df.empty:
-            val_df[valid_scaled_cols] = val_df[valid_scaled_cols].astype(np.float32)
-        if not test_df.empty:
-            test_df[valid_scaled_cols] = test_df[valid_scaled_cols].astype(np.float32)
+        if not val_df.empty: val_df[valid_scaled_cols] = val_df[valid_scaled_cols].astype(np.float32)
+        if not test_df.empty: test_df[valid_scaled_cols] = test_df[valid_scaled_cols].astype(np.float32)
 
-        # Fit on train only
         scaler.fit(train_df[valid_scaled_cols])
-
-        # Apply to all splits
-        train_df.loc[:, valid_scaled_cols] = scaler.transform(
-            train_df[valid_scaled_cols])
+        train_df.loc[:, valid_scaled_cols] = scaler.transform(train_df[valid_scaled_cols])
         if not val_df.empty:
-            val_df.loc[:, valid_scaled_cols] = scaler.transform(
-                val_df[valid_scaled_cols])
+            val_df.loc[:, valid_scaled_cols] = scaler.transform(val_df[valid_scaled_cols])
         if not test_df.empty:
-            test_df.loc[:, valid_scaled_cols] = scaler.transform(
-                test_df[valid_scaled_cols])
-                
-    else:
-        print("No valid columns specified for scaling, or scaled_cols is empty.")
+            test_df.loc[:, valid_scaled_cols] = scaler.transform(test_df[valid_scaled_cols])
 
-    return train_df, val_df, test_df, feature_cols, target_col, scaler
+    # Return the new N_mols and N_isos values
+    return train_df, val_df, test_df, feature_cols, target_col, scaler, n_molecules, n_isos

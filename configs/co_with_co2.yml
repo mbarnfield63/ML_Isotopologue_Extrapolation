@@ -1,0 +1,89 @@
+run_name: "co_co2_combined"
+output_dir: "outputs/"
+
+data:
+  # simply list both files here to combine them
+  paths: 
+    - "data/processed/CO2_minor_isos_ma.txt"
+    - "data/processed/CO_minor_isos_ma.txt" 
+  
+  target_col: "Error_IE"
+  
+  # Columns to identify for embeddings
+  molecule_col: "molecule" 
+  iso_col: "iso"           
+  
+  not_feature_cols:
+    - "Error_IE"
+    - "E_Ma_iso"
+    - "E_IE_original"
+    - "iso"
+    - "molecule"
+    - "molecule_idx" 
+    - "iso_idx"      
+    - "ID"
+    - "unc"
+    - "??"
+    - "Source"
+    - "match_key"
+
+  scaled_cols:
+    - "E_IE"
+    - "E_Ca_iso"
+    - "E_Ca_main"
+    - "E_Ma_main"
+    - "gtot"
+    - "J"
+
+experiment:
+  type: "single_run"
+  seed: 42
+  train_size: 0.7
+  val_size: 0.1
+  test_size: 0.2
+
+model:
+  name: "CO_CO2_Combined"
+  params:
+    shared_dim: 128
+    iso_head_dim: 64
+
+training:
+  epochs: 100
+  batch_size: 512
+  learning_rate: 5e-4 
+  loss_function: "SmoothL1Loss" 
+  huber_delta: 0.01
+  optimizer: "Adam"
+  early_stopping:
+    enabled: True
+    patience: 20
+    delta: 1e-5
+
+analysis:
+  feature_importance:
+    enabled: true
+    metric: 'mae'
+
+  post_processing:
+    enabled: true
+    true_energy_col: "E_Ma_iso"
+    original_energy_col: "E_IE" 
+    nn_correction_col: "NN_correction"
+
+  isotopologue_analysis:
+    enabled: true
+    group_by_col: "iso"
+    isos_of_interest: [27, 28, 36, 37, 38]
+
+plotting:
+  enabled: true
+  group_by_col: "iso"
+  true_energy_col: "E_Ma_iso"
+  
+  plot_loss: true
+  plot_pred_vs_true: true
+  plot_metric_bars: true
+  plot_residual_hist: true
+  plot_residual_boxplots: true
+  plot_iso_residuals: true

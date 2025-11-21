@@ -43,8 +43,25 @@ def main(config_path: str):
     print("\n" + "=" * 60)
     print("STEP 1: LOADING DATA")
     print("=" * 60)
-    (train_df, val_df, test_df, feature_cols, target_col, scaler) = load_data(config)
+    (
+        train_df,
+        val_df,
+        test_df,
+        feature_cols,
+        target_col,
+        scaler,
+        n_molecules,
+        n_isos
+    ) = load_data(config)
     print(f"Loaded data with {len(feature_cols)} features.")
+    print(f"Found {n_molecules} molecules and {n_isos} isotopologues.")
+
+    # === Update Config with Model Params ===
+    if 'params' not in config['model']:
+        config['model']['params'] = {}
+        
+    config['model']['params']['n_molecules'] = n_molecules
+    config['model']['params']['n_isos'] = n_isos
 
     # === 3. Run Experiment ===
     print("\n" + "=" * 60)
@@ -107,7 +124,10 @@ def main(config_path: str):
         if fi_config.get("enabled", False) and results["model"] and not test_df.empty:
 
             print("\nCalculating feature importance...")
-            test_ds = MoleculeDataset(test_df, feature_cols, target_col)
+            mol_col = config['data'].get('molecule_idx_col')
+            iso_col = config['data'].get('iso_idx_col')
+            
+            test_ds = MoleculeDataset(test_df, feature_cols, target_col, mol_col, iso_col)
             test_loader = torch.utils.data.DataLoader(
                 test_ds,
                 batch_size=config.get("training", {}).get("batch_size", 128),
@@ -120,6 +140,8 @@ def main(config_path: str):
                 device,
                 feature_cols,
                 metric=fi_config.get("metric", "mae"),
+                output_dir=output_dir,
+                plot_fi=fi_config.get("plot", True)
             )
             fi_path = os.path.join(output_dir, "CSVs", "feature_importance.csv")
             feature_importance_df.to_csv(fi_path, index=False)

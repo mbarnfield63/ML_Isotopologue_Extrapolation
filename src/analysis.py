@@ -5,7 +5,7 @@ import torch
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 from sklearn.preprocessing import StandardScaler
 
-# TODO from .plotting import plot_feature_importance
+from .plotting import plot_feature_importance
 
 
 def run_post_processing(
@@ -235,7 +235,10 @@ def get_feature_importance(
     dataloader,
     device: torch.device,
     feature_cols: list[str],
+    criterion: torch.nn.Module = None,
     metric: str = "mae",
+    output_dir: str = None,
+    plot_fi: bool = True,
 ):
     """
     Permutation feature importance.
@@ -246,8 +249,25 @@ def get_feature_importance(
     model.eval()
 
     X_list, y_list = [], []
+    mol_idx_list, iso_idx_list = [], []
+    has_indices = False
+
     with torch.no_grad():
-        for X_batch, y_batch in dataloader:
+        for batch in dataloader:
+            if isinstance(batch, (list, tuple)):
+                if len(batch) >= 4:
+                    # Assuming X, y, mol_idx, iso_idx
+                    X_batch, y_batch = batch[0], batch[1]
+                    mol_idx_batch, iso_idx_batch = batch[2], batch[3]
+                    mol_idx_list.append(mol_idx_batch)
+                    iso_idx_list.append(iso_idx_batch)
+                    has_indices = True
+                elif len(batch) >= 2:
+                    X_batch, y_batch = batch[0], batch[1]
+            else:
+                print("Warning: Unexpected batch structure")
+                return pd.DataFrame()
+
             X_list.append(X_batch)
             y_list.append(y_batch)
 
@@ -255,11 +275,43 @@ def get_feature_importance(
         print("  WARNING: Dataloader empty, cannot compute feature importance.")
         return pd.DataFrame()
 
+    # Concatenate all batches
     X_full = torch.cat(X_list, dim=0).to(device)
     y_full = torch.cat(y_list, dim=0).to(device)
 
+    mol_idx_full = None
+    iso_idx_full = None
+    if has_indices:
+            mol_idx_full = torch.cat(mol_idx_list, dim=0).to(device)
+            iso_idx_full = torch.cat(iso_idx_list, dim=0).to(device)
+
+            # === SAFETY CHECK: Validate Indices ===
+            if (mol_idx_full < 0).any() or (iso_idx_full < 0).any():
+                print("  ERROR: Negative indices detected! Cannot compute FI.")
+                return pd.DataFrame()
+            
+            # Check upper bounds if possible (requires access to model internals)
+            if hasattr(model, 'mol_embed') and hasattr(model.mol_embed, 'num_embeddings'):
+                max_mol = model.mol_embed.num_embeddings
+                if (mol_idx_full >= max_mol).any():
+                    print(f"  ERROR: Molecule indices out of bounds (>= {max_mol})! Cannot compute FI.")
+                    return pd.DataFrame()
+                    
+            if hasattr(model, 'iso_embed') and hasattr(model.iso_embed, 'num_embeddings'):
+                max_iso = model.iso_embed.num_embeddings
+                if (iso_idx_full >= max_iso).any():
+                    print(f"  ERROR: Isotopologue indices out of bounds (>= {max_iso})! Cannot compute FI.")
+                    return pd.DataFrame()
+
+    # Helper to call model with correct args
+    def predict(input_x):
+        if has_indices:
+            return model(input_x, mol_idx_full, iso_idx_full)
+        else:
+            return model(input_x)
+
     with torch.no_grad():
-        y_hat = model(X_full)
+        y_hat = predict(X_full)
 
     def compute_metric(y_true_t, y_pred_t):
         # For MAE/RMSE, use numpy for simplicity and robustness
@@ -285,7 +337,7 @@ def get_feature_importance(
             idx = torch.randperm(X_perm.size(0), generator=g, device=device)
             X_perm[:, j] = X_perm[idx, j]
 
-            y_perm = model(X_perm)
+            y_perm = predict(X_perm)
             perm_score = compute_metric(y_full, y_perm)
 
             importance[feat] = perm_score - baseline_score
@@ -297,8 +349,12 @@ def get_feature_importance(
         }
     ).sort_values("importance", ascending=False)
 
-    # TODO: Call plot_feature_importance here
-    # if output_dir:
-    #     plot_feature_importance(df_imp, output_dir)
+    if output_dir and plot_fi:
+        try:
+            # Pass output_dir to the plotting function
+            plot_feature_importance(df_imp, output_dir)
+        except Exception as e:
+            print(f"  WARNING: Failed to plot feature importance. Error: {e}")
+
 
     return df_imp

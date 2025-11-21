@@ -8,7 +8,7 @@ class CO2_Single_Trunk(nn.Module):
     and Dropout for regularization.
     """
 
-    def __init__(self, input_dim: int, dropout: float = 0.3):
+    def __init__(self, input_dim: int, dropout: float = 0.3, **kwargs):
         super().__init__()
         self.shared = nn.Sequential(
             nn.Linear(input_dim, 1024),
@@ -34,7 +34,7 @@ class CO2_Single_Trunk(nn.Module):
             nn.Linear(32, 1),
         )
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         return self.shared(x)
 
     def init_output_bias(self, bias_value: float = 0.0):
@@ -118,13 +118,11 @@ class COCO2_Combined_Shared_Partial_Heads(nn.Module):
         # Per-isotope specialized adapter prediction
         out = torch.zeros_like(shared_pred)
         
-        # We iterate through heads. 
-        # Note: This loop assumes iso_idx corresponds to the index in iso_heads.
-        # The data_loader must ensure iso_idx is mapped to 0..N-1.
+        # Iterate through heads. 
         for i, head in enumerate(self.iso_heads):
             mask = (iso_idx == i)
             if mask.any():
-                # We squeeze the mask to match shared dimensions if necessary, 
+                # Squeeze the mask to match shared dimensions if necessary, 
                 # but here mask is usually 1D (Batch).
                 out[mask] = head(shared[mask])
 
@@ -136,12 +134,6 @@ class COCO2_Combined_Shared_Partial_Heads(nn.Module):
         return final_pred 
 
     def init_output_bias(self, bias_value: float = 0.0):
-        # Initialize bias in the trunk's last linear layer is less relevant 
-        # due to the heads, but we can try to init the heads or shared_head.
-        # The original code inited the trunk, which might be a bug or intended 
-        # for the latent space. 
-        # Let's initialize the final linear layers of the heads and shared_head.
-        
         with torch.no_grad():
             # Shared head
             self.shared_head[-1].bias.fill_(float(bias_value))

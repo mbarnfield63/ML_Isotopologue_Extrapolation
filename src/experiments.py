@@ -58,13 +58,17 @@ def run_single_train_test(
         )
     """
     train_config = config["training"]
+    data_config = config["data"]
     batch_size = train_config.get("batch_size", 128)
     epochs = train_config.get("epochs", 100)
 
-    # Dataloaders
-    train_ds = MoleculeDataset(train_df, feature_cols, target_col)
-    val_ds = MoleculeDataset(val_df, feature_cols, target_col)
-    test_ds = MoleculeDataset(test_df, feature_cols, target_col)
+    # === Dataloaders ===
+    mol_col = data_config.get("molecule_idx_col")
+    iso_col = data_config.get("iso_idx_col")
+
+    train_ds = MoleculeDataset(train_df, feature_cols, target_col, mol_col, iso_col)
+    val_ds = MoleculeDataset(val_df, feature_cols, target_col, mol_col, iso_col)
+    test_ds = MoleculeDataset(test_df, feature_cols, target_col, mol_col, iso_col)
     
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size)
@@ -104,7 +108,7 @@ def run_single_train_test(
     train_losses, val_losses = [], []
     best_model_state = copy.deepcopy(model.state_dict())
     best_val_loss = np.inf
-    epoch_stopped = epochs  # Track which epoch we actually stop on
+    epoch_stopped = epochs
 
     for epoch in range(epochs):
         train_loss = train(model, train_loader, optimizer, device, criterion)
@@ -192,10 +196,11 @@ def run_cross_validation(
     """
     exp_config = config["experiment"]
     train_config = config["training"]
+    data_config = config['data']
     k_folds = exp_config.get("k_folds", 5)
     seed = exp_config.get("seed", 42)
     batch_size = train_config.get("batch_size", 128)
-    epochs = train_config.get("epochs", 50)  # CV folds often use fewer epochs
+    epochs = train_config.get("epochs", 50)
 
     fold_results, all_fold_preds = [], []
 
@@ -215,6 +220,8 @@ def run_cross_validation(
     # fold has the same *proportion* of each isotopologue as the full dataset.
     stratify_on_col = "iso"
 
+    # Get Stratification col
+    stratify_on_col = 'iso' 
     if stratify_on_col not in full_df.columns:
         print(f"WARNING: Stratification column '{stratify_on_col}' not found.")
         print(
@@ -228,9 +235,10 @@ def run_cross_validation(
         # We pass the 'iso' column to the split method
         split_iterator = kf.split(full_df, full_df[stratify_on_col])
 
-    print("=" * 60)
+    # Index cols for dataloader
+    mol_col = data_config.get('molecule_idx_col')
+    iso_col = data_config.get('iso_idx_col')
 
-    # Loop over the 'split_iterator' which is either KFold or StratifiedKFold
     for fold, (train_idx, val_idx) in enumerate(split_iterator):
         print(f"\n=== Fold {fold+1}/{k_folds} ===")
         train_df_fold = full_df.iloc[train_idx].copy()
@@ -241,23 +249,15 @@ def run_cross_validation(
         scaled_cols = config["data"].get("scaled_cols", []) or []
         valid_scaled_cols = [col for col in scaled_cols if col in feature_cols]
         if valid_scaled_cols:
-            train_df_fold.loc[:, valid_scaled_cols] = scaler.fit_transform(
-                train_df_fold[valid_scaled_cols]
-            )
-            val_df_fold.loc[:, valid_scaled_cols] = scaler.transform(
-                val_df_fold[valid_scaled_cols]
-            )
-
-        # Dataloaders for this fold
-        train_ds = MoleculeDataset(train_df_fold, feature_cols, target_col)
-        val_ds = MoleculeDataset(val_df_fold, feature_cols, target_col)
-        pin_memory = device.type == "cuda"
-        train_loader = DataLoader(
-            train_ds, batch_size=batch_size, shuffle=True, pin_memory=pin_memory
-        )
-        val_loader = DataLoader(
-            val_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_memory
-        )
+            train_df_fold.loc[:, valid_scaled_cols] = scaler.fit_transform(train_df_fold[valid_scaled_cols])
+            val_df_fold.loc[:, valid_scaled_cols] = scaler.transform(val_df_fold[valid_scaled_cols])
+        
+        train_ds = MoleculeDataset(train_df_fold, feature_cols, target_col, mol_col, iso_col)
+        val_ds = MoleculeDataset(val_df_fold, feature_cols, target_col, mol_col, iso_col)
+        
+        pin_memory = (device.type == 'cuda')
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, pin_memory=pin_memory)
+        val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_memory)
 
         # Get a fresh model and optimizer for each fold
         model = get_model(config, input_dim=len(feature_cols)).to(device)
@@ -306,9 +306,7 @@ def run_cross_validation(
                     best_model_state = new_best_state
                     best_val_loss = early_stopper.val_loss_min
                 if stop_training:
-                    print(
-                        f"  Fold {fold+1}: Early stopping triggered at epoch {epoch+1}"
-                    )
+                    print(f"  Fold {fold+1}: Early stopping triggered at epoch {epoch+1}")
                     epoch_stopped = epoch + 1
                     break
             else:
