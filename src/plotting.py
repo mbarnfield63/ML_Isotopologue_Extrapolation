@@ -520,6 +520,13 @@ def plot_all_results(
     # Get shared config values
     group_by_col = plot_config.get("group_by_col", "iso")
     energy_col = plot_config.get("true_energy_col", "E_Ma_iso")
+
+    # Filter by isos_of_interest
+    isos = plot_config.get("isos_of_interest", [])
+    if isos:
+        pred_df = pred_df[pred_df[group_by_col].isin(isos)]
+        if iso_results_df is not None and not iso_results_df.empty:
+            iso_results_df = iso_results_df[iso_results_df["Group"].isin(isos)]
     
     # --- 1. Plot Loss Curve ---
     if plot_config.get("plot_loss", True) and not is_cv_run:

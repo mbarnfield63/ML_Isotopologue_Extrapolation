@@ -51,7 +51,8 @@ def main(config_path: str):
         target_col,
         scaler,
         n_molecules,
-        n_isos
+        n_isos,
+        train_sampler
     ) = load_data(config)
     print(f"Loaded data with {len(feature_cols)} features.")
     print(f"Found {n_molecules} molecules and {n_isos} isotopologues.")
@@ -68,7 +69,14 @@ def main(config_path: str):
     print("STEP 2: RUNNING EXPERIMENT")
     print("=" * 60)
     results = run_experiment(
-        config, train_df, val_df, test_df, feature_cols, target_col, device
+        config,
+        train_df,
+        val_df,
+        test_df,
+        feature_cols,
+        target_col,
+        device,
+        train_sampler
     )
 
     # === 4. Post-Processing & Analysis ===
@@ -95,6 +103,11 @@ def main(config_path: str):
         if pp_config.get("enabled", False):
             print("\nRunning post-processing...")
             pred_df = run_post_processing(pred_df, pp_config, scaler, config)
+
+            # Drop rows not in isos_of_interest
+            isos_of_interest = pp_config.get("isos_of_interest", [])
+            if isos_of_interest:
+                pred_df = pred_df[pred_df[config['data']['iso_col']].isin(isos_of_interest)]
 
             if "Original_abs_error" in pred_df.columns:
                 try:

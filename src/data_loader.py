@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, WeightedRandomSampler
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 
@@ -53,6 +53,55 @@ class MoleculeDataset(Dataset):
             items.append(torch.tensor(-1)) # Dummy value
             
         return tuple(items)
+
+
+def get_weighted_sampler(df, iso_col, weight_config):
+    """
+    Creates a WeightedRandomSampler based on isotopologue frequencies 
+    and manual overrides.
+    """
+    if not iso_col or iso_col not in df.columns:
+        return None
+
+    # 1. Calculate base weights (inverse frequency)
+    iso_counts = df[iso_col].value_counts()
+    total_samples = len(df)
+    
+    # Weight = Total / (Count * Number_of_Classes)
+    # This balances the classes perfectly if used as is
+    n_classes = len(iso_counts)
+    class_weights = {iso: total_samples / (count * n_classes) for iso, count in iso_counts.items()}
+    
+    # 2. Apply manual overrides from config
+    # e.g. weights: {626: 0.1, 636: 2.0}
+    manual_weights = weight_config.get('manual_weights', {})
+    
+    # Convert keys in manual_weights to match the type in df[iso_col] (usually int or str)
+    first_val = df[iso_col].iloc[0]
+    
+    # Normalize manual weights if provided
+    for iso_key, multiplier in manual_weights.items():
+        # Try to match the key type
+        try:
+            if isinstance(first_val, (int, np.integer)):
+                iso_key = int(iso_key)
+            elif isinstance(first_val, str):
+                iso_key = str(iso_key)
+        except:
+            pass # Keep original key if casting fails
+            
+        if iso_key in class_weights:
+            class_weights[iso_key] *= multiplier
+
+    # 3. Assign a weight to every sample
+    sample_weights = df[iso_col].map(class_weights).fillna(0).values
+    sample_weights = torch.from_numpy(sample_weights).double()
+    
+    # 4. Create sampler
+    # replacement=True is required for oversampling rare classes
+    sampler = WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
+    
+    return sampler
 
 
 def load_data(config):
@@ -238,5 +287,16 @@ def load_data(config):
         if not test_df.empty:
             test_df.loc[:, valid_scaled_cols] = scaler.transform(test_df[valid_scaled_cols])
 
-    # Return the new N_mols and N_isos values
-    return train_df, val_df, test_df, feature_cols, target_col, scaler, n_molecules, n_isos
+    # === 7. Weighted Sampler ===
+    # Only weight the training set
+    weight_config = config.get('weighting', {})
+    train_sampler = None
+    
+    if weight_config.get('enabled', False):
+        print("Creating weighted sampler for training data...")
+        # Use the original iso column (not the encoded index) for easier config matching
+        train_sampler = get_weighted_sampler(train_df, iso_col, weight_config)
+        if train_sampler:
+            print(f"  Sampler created. Manual weights: {weight_config.get('manual_weights', 'None')}")
+
+    return train_df, val_df, test_df, feature_cols, target_col, scaler, n_molecules, n_isos, train_sampler

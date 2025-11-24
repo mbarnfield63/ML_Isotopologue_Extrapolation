@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
@@ -44,6 +45,7 @@ def run_single_train_test(
     feature_cols: list,
     target_col: str,
     device: torch.device,
+    train_sampler=None,
 ):
     """
     Runs a single train/validation/test experiment.
@@ -69,8 +71,17 @@ def run_single_train_test(
     train_ds = MoleculeDataset(train_df, feature_cols, target_col, mol_col, iso_col)
     val_ds = MoleculeDataset(val_df, feature_cols, target_col, mol_col, iso_col)
     test_ds = MoleculeDataset(test_df, feature_cols, target_col, mol_col, iso_col)
-    
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+
+    # Get WeightedSampler if specified in config
+    sampler = train_sampler
+    if sampler is None and data_config.get("use_weighted_sampler", False):
+        from .data_loader import get_weighted_sampler
+        sampler = get_weighted_sampler(train_df, target_col)
+        print("Using WeightedSampler for training.")
+
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=(sampler is None), sampler=sampler
+    )
     val_loader = DataLoader(val_ds, batch_size=batch_size)
     test_loader = DataLoader(test_ds, batch_size=batch_size)
 
@@ -79,6 +90,18 @@ def run_single_train_test(
     optimizer = get_optimizer(model, config)
     print(f"Using Optimizer: {train_config.get('optimizer', 'Adam')}")
     print(f"Using Loss Function: {train_config.get('loss_function', 'SmoothL1Loss')}")
+
+    scheduler_config = train_config.get('scheduler', {})
+    scheduler = None
+    if scheduler_config.get('enabled', False):
+        print(f"Using ReduceLROnPlateau Scheduler: {scheduler_config}")
+        scheduler = ReduceLROnPlateau(
+            optimizer,
+            mode=scheduler_config.get('mode', 'min'),
+            factor=scheduler_config.get('factor', 0.1),
+            patience=scheduler_config.get('patience', 10),
+            min_lr=float(scheduler_config.get('min_lr', 1e-6))
+        )
 
     # Initialize Early Stopping
     early_stopping_config = train_config.get("early_stopping", {})
@@ -116,6 +139,9 @@ def run_single_train_test(
 
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+
+        if scheduler:
+            scheduler.step(val_loss)
 
         # Log progress
         if (epoch + 1) % 10 == 0 or epoch == 0 or epoch == epochs - 1:
@@ -216,7 +242,7 @@ def run_cross_validation(
     print(f"Using Loss Function: {train_config.get('loss_function', 'SmoothL1Loss')}")
 
     # This is the key to address the rare isotopologue problem.
-    # We will stratify on the 'iso' column. This guarantees that each
+    # Stratify on the 'iso' column. This guarantees that each
     # fold has the same *proportion* of each isotopologue as the full dataset.
     stratify_on_col = "iso"
 
@@ -254,14 +280,36 @@ def run_cross_validation(
         
         train_ds = MoleculeDataset(train_df_fold, feature_cols, target_col, mol_col, iso_col)
         val_ds = MoleculeDataset(val_df_fold, feature_cols, target_col, mol_col, iso_col)
-        
+
+        # Get WeightedSampler if specified in config
+        sampler = None
+        if data_config.get("use_weighted_sampler", False):
+            from .data_loader import get_weighted_sampler
+            sampler = get_weighted_sampler(train_df_fold, target_col)
+            print(f"  Fold {fold+1}: Using WeightedSampler for training.")
+
         pin_memory = (device.type == 'cuda')
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, pin_memory=pin_memory)
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=(sampler is None), sampler=sampler, pin_memory=pin_memory
+        )
         val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_memory)
 
         # Get a fresh model and optimizer for each fold
         model = get_model(config, input_dim=len(feature_cols)).to(device)
         optimizer = get_optimizer(model, config)
+
+        scheduler_config = train_config.get('scheduler', {})
+        scheduler = None
+        if scheduler_config.get('enabled', False):
+            # Only print for first fold
+            if fold == 0: print(f"Using ReduceLROnPlateau Scheduler: {scheduler_config}")
+            scheduler = ReduceLROnPlateau(
+                optimizer,
+                mode='min',
+                factor=scheduler_config.get('factor', 0.1),
+                patience=scheduler_config.get('patience', 10),
+                min_lr=float(scheduler_config.get('min_lr', 1e-6))
+            )
 
         # Initialize Early Stopping for the fold
         early_stopping_config = train_config.get("early_stopping", {})
@@ -289,6 +337,9 @@ def run_cross_validation(
         for epoch in range(epochs):
             train_loss = train(model, train_loader, optimizer, device, criterion)
             val_loss, val_rmse, val_mae = evaluate(model, val_loader, device, criterion)
+
+            if scheduler:
+                scheduler.step(val_loss)
 
             # Log ~5 times per fold
             if (epoch + 1) % (epochs // 5 or 1) == 0 or epoch == epochs - 1:
@@ -372,6 +423,7 @@ def run_experiment(
     feature_cols: list,
     target_col: str,
     device: torch.device,
+    train_sampler=None
 ):
     """
     Main dispatcher function.
@@ -405,6 +457,7 @@ def run_experiment(
                 feature_cols,
                 target_col,
                 device,
+                train_sampler=train_sampler,
             )
         )
         results.update(
@@ -419,8 +472,6 @@ def run_experiment(
 
     elif exp_type == "cv":
         # --- Run a K-Fold Cross-Validation experiment ---
-
-        # We perform CV on the combined train + val sets.
         full_cv_df = pd.concat([train_df, val_df], ignore_index=True)
         print(f"Running CV on combined train+val splits (n={len(full_cv_df)}).")
         if not test_df.empty:
@@ -429,7 +480,11 @@ def run_experiment(
             )
 
         cv_results_df, cv_preds_df = run_cross_validation(
-            config, full_cv_df, feature_cols, target_col, device
+            config,
+            full_cv_df,
+            feature_cols,
+            target_col,
+            device,
         )
 
         # The main results from CV are the summary and the out-of-fold predictions

@@ -2,16 +2,13 @@ run_name: "co_co2_combined"
 output_dir: "outputs/"
 
 data:
-  # simply list both files here to combine them
   paths: 
     - "data/processed/CO2_minor_isos_ma.txt"
-    - "data/processed/CO_minor_isos_ma.txt" 
+    - "data/processed/CO_minor_isos_ma_FILTERED.txt" 
   
   target_col: "Error_IE"
-  
-  # Columns to identify for embeddings
   molecule_col: "molecule" 
-  iso_col: "iso"           
+  iso_col: "iso"
   
   not_feature_cols:
     - "Error_IE"
@@ -35,6 +32,23 @@ data:
     - "gtot"
     - "J"
 
+isos_of_interest: &isos_of_interest
+  - 27
+  - 28
+  - 36
+  - 37
+  - 38
+
+weighting:
+  enabled: true
+  manual_weights:
+    # CO isos
+    "27": 7.0
+    "28": 1.0
+    "36": 2.0
+    "37": 7.0
+    "38": 1.0
+
 experiment:
   type: "single_run"
   seed: 42
@@ -55,9 +69,15 @@ training:
   loss_function: "SmoothL1Loss" 
   huber_delta: 0.01
   optimizer: "Adam"
+  scheduler:
+    enabled: true
+    mode: 'min'
+    factor: 0.1
+    patience: 10
+    min_lr: 1e-6
   early_stopping:
     enabled: True
-    patience: 20
+    patience: 30
     delta: 1e-5
 
 analysis:
@@ -74,12 +94,13 @@ analysis:
   isotopologue_analysis:
     enabled: true
     group_by_col: "iso"
-    isos_of_interest: [27, 28, 36, 37, 38]
+    isos_of_interest: *isos_of_interest
 
 plotting:
   enabled: true
   group_by_col: "iso"
   true_energy_col: "E_Ma_iso"
+  isos_of_interest: *isos_of_interest
   
   plot_loss: true
   plot_pred_vs_true: true
