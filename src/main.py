@@ -36,6 +36,7 @@ def main(config_path: str):
     seed = config.get("experiment", {}).get("seed", 42)
     setup_reproducibility(seed)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Current device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
 
     # === 2. Load Data ===
