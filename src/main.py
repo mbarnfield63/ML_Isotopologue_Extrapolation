@@ -36,8 +36,7 @@ def main(config_path: str):
     seed = config.get("experiment", {}).get("seed", 42)
     setup_reproducibility(seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    print("Current device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
 
     # === 2. Load Data ===
     print("\n" + "=" * 60)
@@ -87,6 +86,20 @@ def main(config_path: str):
     pred_df = results["test_predictions_df"]
     iso_results_df = pd.DataFrame()
     overall_metrics = {}
+
+    # Filter by isos_of_interest (if specified)
+    iso_config = analysis_config.get("isotopologue_analysis", {})
+    isos_of_interest = iso_config.get("isos_of_interest", [])
+    
+    # Also check post_processing config for backward compatibility or overrides
+    if not isos_of_interest:
+        isos_of_interest = analysis_config.get("post_processing", {}).get("isos_of_interest", [])
+
+    if isos_of_interest and not pred_df.empty:
+        iso_col = config['data'].get('iso_col', 'iso')
+        if iso_col in pred_df.columns:
+            print(f"Filtering predictions to isos_of_interest: {isos_of_interest}")
+            pred_df = pred_df[pred_df[iso_col].isin(isos_of_interest)].copy()
 
     if pred_df.empty:
         print("No predictions generated. Skipping analysis.")
@@ -162,7 +175,7 @@ def main(config_path: str):
         else:
             print("Skipping feature importance (not enabled in config).")
 
-    # === 5. Plotting (To be added) ===
+    # === 5. Plotting ===
     print("\n" + "=" * 60)
     print("STEP 4: PLOTTING RESULTS")
     print("=" * 60)

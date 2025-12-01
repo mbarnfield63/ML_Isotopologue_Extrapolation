@@ -46,11 +46,11 @@ def run_post_processing(
         return pred_df
 
     # === 3. Un-scale data ===
-    # We must un-scale *before* calculations
     scaled_cols = full_config.get("data", {}).get("scaled_cols", []) or []
     valid_scaled_cols = [col for col in scaled_cols if col in pred_df.columns]
 
-    if valid_scaled_cols and scaler is not None and scaler.n_features_in_ > 0:
+    # Check using hasattr to avoid crash if scaler not fitted
+    if valid_scaled_cols and scaler is not None and hasattr(scaler, 'mean_'):
         print(f"  Un-scaling {len(valid_scaled_cols)} columns for post-processing...")
 
         # Create a copy to avoid SettingWithCopyWarning
@@ -59,7 +59,7 @@ def run_post_processing(
             pred_df_unscaled[valid_scaled_cols]
         )
     else:
-        print("  No columns to un-scale or scaler not provided.")
+        print("  No columns to un-scale (or scaler not fitted). Assuming data is already unscaled.")
         pred_df_unscaled = pred_df.copy()
 
     # === 4. Apply NN correction ===

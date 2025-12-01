@@ -273,7 +273,11 @@ def load_data(config):
     scaled_cols = data_config.get('scaled_cols', []) or []
     valid_scaled_cols = [col for col in scaled_cols if col in feature_cols and col in train_df.columns]
     
-    if valid_scaled_cols:
+    # Only scale globally if NOT running CV
+    # Scaling is handled per-fold in that case
+    is_cv = (exp_config.get('type') == 'cv')
+
+    if valid_scaled_cols and not is_cv:
         print(f"Fitting scaler on {len(valid_scaled_cols)} columns...")
         # Ensure floats
         train_df[valid_scaled_cols] = train_df[valid_scaled_cols].astype(np.float32)
@@ -286,6 +290,9 @@ def load_data(config):
             val_df.loc[:, valid_scaled_cols] = scaler.transform(val_df[valid_scaled_cols])
         if not test_df.empty:
             test_df.loc[:, valid_scaled_cols] = scaler.transform(test_df[valid_scaled_cols])
+            
+    elif is_cv:
+        print("Experiment type is 'cv'. Skipping global scaling (will be handled per-fold).")
 
     # === 7. Weighted Sampler ===
     # Only weight the training set

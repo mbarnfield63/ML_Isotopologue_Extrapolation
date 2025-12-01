@@ -270,11 +270,18 @@ def run_cross_validation(
         train_df_fold = full_df.iloc[train_idx].copy()
         val_df_fold = full_df.iloc[val_idx].copy()
 
+        # Keep unscaled copy for reporting
+        val_df_fold_unscaled = val_df_fold.copy()
+
         # Scaler must be fit inside the loop
         scaler = StandardScaler()
         scaled_cols = config["data"].get("scaled_cols", []) or []
         valid_scaled_cols = [col for col in scaled_cols if col in feature_cols]
         if valid_scaled_cols:
+            # Cast all to float before scaling
+            train_df_fold[valid_scaled_cols] = train_df_fold[valid_scaled_cols].astype(float)
+            val_df_fold[valid_scaled_cols] = val_df_fold[valid_scaled_cols].astype(float)
+            
             train_df_fold.loc[:, valid_scaled_cols] = scaler.fit_transform(train_df_fold[valid_scaled_cols])
             val_df_fold.loc[:, valid_scaled_cols] = scaler.transform(val_df_fold[valid_scaled_cols])
         
@@ -389,8 +396,8 @@ def run_cross_validation(
         # Get predictions for this fold
         y_true, y_pred = get_predictions(model, val_loader, device)
 
-        # Store predictions, merging back non-feature columns
-        fold_pred_df = val_df_fold[non_feature_cols].copy()
+        # Store predictions, merging back all original columns
+        fold_pred_df = val_df_fold_unscaled.copy()
         fold_pred_df["fold"] = fold + 1
         fold_pred_df["y_true"] = y_true
         fold_pred_df["y_pred"] = y_pred

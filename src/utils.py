@@ -21,13 +21,14 @@ def create_output_dir(config: dict) -> str:
     """
     Creates a unique, timestamped output directory for the experiment.
 
-    Example: outputs/co2_basic_20251114_163045/
+    Example: outputs/co2_basic_single_run_20251114_1630/
     """
     base_output_dir = config.get("output_dir", "outputs")
     run_name = config.get("run_name", "experiment")
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    run_type = config.get("experiment", {}).get("type", "default")
+    timestamp = time.strftime("%Y%m%d_%H%M")
 
-    output_dir = os.path.join(base_output_dir, f"{run_name}_{timestamp}")
+    output_dir = os.path.join(base_output_dir, f"{run_name}_{run_type}_{timestamp}")
 
     # Create all necessary subdirectories
     os.makedirs(os.path.join(output_dir, "CSVs"), exist_ok=True)
