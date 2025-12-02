@@ -213,8 +213,8 @@ def plot_iso_residuals_all(
         axes[row, col].axis("off")
 
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    # Put legend in the second to last axis
-    legend_ax = axes[-1, -2] if n_col > 1 else axes[-2, 0]
+    # Put legend & overall reduction in the last axis
+    legend_ax = axes[-1, -1] if n_col > 1 else axes[-1, 0]
     legend_ax.legend(
         handles,
         labels,
@@ -228,10 +228,10 @@ def plot_iso_residuals_all(
     mae_reduction_text = (
         f"Overall Residuals Reduction\n{overall_pct_improvement:.2f}%"
     )
-    final_ax = axes[-1, -1]
+    final_ax = axes[-1, -1] if n_col > 1 else axes[-1, 0]
     final_ax.text(
         0.5,
-        0.575,
+        0.8,
         mae_reduction_text,
         transform=final_ax.transAxes,
         fontsize=20,
@@ -276,7 +276,7 @@ def plot_metrics_bars(iso_results_df, output_dir, figsize=(12, 5)):
             hatch="\\" if i == 0 else None,
         )
 
-    axes[0].set_xlabel("Group")
+    axes[0].set_xlabel("Isotopologue Number")
     axes[0].set_xticks(x + width * (len(maes) - 1) / 2)
     axes[0].set_xticklabels(isotopologues, rotation=45, ha="center")
     axes[0].set_ylabel("MAE")
