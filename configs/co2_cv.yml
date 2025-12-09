@@ -1,4 +1,4 @@
-run_name: "co2_cv"
+run_name: "co2_basic"
 output_dir: "outputs/" # This will be created by the main script
 
 data:
@@ -39,7 +39,7 @@ experiment:
   test_size: 0.2 
 
 model:
-  name: "CO2_Basic" # Same model format as co2_basic
+  name: "CO2_Basic"
   params:
     dropout: 0.3
 
