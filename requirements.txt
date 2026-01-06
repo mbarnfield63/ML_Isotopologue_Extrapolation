@@ -1,0 +1,32 @@
+# --- Core & Jupyter ---
+jupyterlab
+notebook
+ipykernel
+
+# --- Data Science Stack ---
+pandas
+numpy
+scipy
+scikit-learn
+statsmodels
+h5py
+
+# --- Plotting ---
+matplotlib
+seaborn
+
+# --- ML/DL ---
+# Note: "pytorch" in Conda is "torch" in PyPI
+torch
+torchvision
+torchaudio
+keras
+
+# --- HPC ---
+# Note: Requires system MPI libraries installed (e.g., openmpi)
+mpi4py
+
+# --- Utilities ---
+tqdm
+requests
+adjusttext
