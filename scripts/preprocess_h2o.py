@@ -229,7 +229,7 @@ def preprocess_states(file_path):
 
 if __name__ == "__main__":
     input_dir = "data/h2o/raw"
-    output_file = "Data/H2O_minor_isos_processed.csv"
+    output_file = "data/processed/H2O_minor_isos_processed.csv"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
     print("1. Parsing raw files...")
