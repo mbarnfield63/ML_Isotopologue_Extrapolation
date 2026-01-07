@@ -18,9 +18,9 @@ dependencies = [
     "scipy>=1.15.3",
     "seaborn>=0.13.2",
     "statsmodels>=0.14.6",
-    "torch>=2.7.1",
-    "torchaudio>=2.7.1",
-    "torchvision>=0.22.1",
+    "torch==2.4.1+cu118",
+    "torchaudio==2.4.1+cu118",
+    "torchvision==0.19.1+cu118",
     "tqdm>=4.67.1",
 ]
 
