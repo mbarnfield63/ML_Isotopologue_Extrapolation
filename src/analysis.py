@@ -50,7 +50,7 @@ def run_post_processing(
     valid_scaled_cols = [col for col in scaled_cols if col in pred_df.columns]
 
     # Check using hasattr to avoid crash if scaler not fitted
-    if valid_scaled_cols and scaler is not None and hasattr(scaler, 'mean_'):
+    if valid_scaled_cols and scaler is not None and hasattr(scaler, "mean_"):
         print(f"  Un-scaling {len(valid_scaled_cols)} columns for post-processing...")
 
         # Create a copy to avoid SettingWithCopyWarning
@@ -59,7 +59,9 @@ def run_post_processing(
             pred_df_unscaled[valid_scaled_cols]
         )
     else:
-        print("  No columns to un-scale (or scaler not fitted). Assuming data is already unscaled.")
+        print(
+            "  No columns to un-scale (or scaler not fitted). Assuming data is already unscaled."
+        )
         pred_df_unscaled = pred_df.copy()
 
     # === 4. Apply NN correction ===
@@ -164,13 +166,13 @@ def analyze_grouped_errors(
         group_data = {"Group": group, "Count": mask.sum()}
 
         if has_pp_cols:
-            # Report on detailed "IE" workflow errors           
+            # Report on detailed "IE" workflow errors
             mean_orig_mae = pred_df.loc[mask, "Original_abs_error"].mean()
             mean_corr_mae = pred_df.loc[mask, "Corrected_abs_error"].mean()
             mean_error_reduction = mean_orig_mae - mean_corr_mae
-            
+
             # This calculation is now robust to divide-by-zero or outliers
-            with np.errstate(divide='ignore', invalid='ignore'):
+            with np.errstate(divide="ignore", invalid="ignore"):
                 mean_pct_reduction = 100 * (mean_error_reduction / mean_orig_mae)
                 if not np.isfinite(mean_pct_reduction):
                     mean_pct_reduction = 0.0  # Set to 0 if mean_orig_mae was 0
@@ -210,9 +212,14 @@ def analyze_grouped_errors(
     # --- Define column order for consistent CSVs ---
     if has_pp_cols:
         cols_order = [
-            "Group", "Count", "Original MAE", "ML Corrected MAE",
-            "Original RMSE", "ML Corrected RMSE",
-            "Mean Error Reduction", "Mean Pct Reduction",
+            "Group",
+            "Count",
+            "Original MAE",
+            "ML Corrected MAE",
+            "Original RMSE",
+            "ML Corrected RMSE",
+            "Mean Error Reduction",
+            "Mean Pct Reduction",
         ]
     elif has_simple_error_cols:
         cols_order = ["Group", "Count", "MAE", "RMSE", "Mean Error"]
@@ -282,26 +289,30 @@ def get_feature_importance(
     mol_idx_full = None
     iso_idx_full = None
     if has_indices:
-            mol_idx_full = torch.cat(mol_idx_list, dim=0).to(device)
-            iso_idx_full = torch.cat(iso_idx_list, dim=0).to(device)
+        mol_idx_full = torch.cat(mol_idx_list, dim=0).to(device)
+        iso_idx_full = torch.cat(iso_idx_list, dim=0).to(device)
 
-            # === SAFETY CHECK: Validate Indices ===
-            if (mol_idx_full < 0).any() or (iso_idx_full < 0).any():
-                print("  ERROR: Negative indices detected! Cannot compute FI.")
+        # === SAFETY CHECK: Validate Indices ===
+        if (mol_idx_full < 0).any() or (iso_idx_full < 0).any():
+            print("  ERROR: Negative indices detected! Cannot compute FI.")
+            return pd.DataFrame()
+
+        # Check upper bounds if possible (requires access to model internals)
+        if hasattr(model, "mol_embed") and hasattr(model.mol_embed, "num_embeddings"):
+            max_mol = model.mol_embed.num_embeddings
+            if (mol_idx_full >= max_mol).any():
+                print(
+                    f"  ERROR: Molecule indices out of bounds (>= {max_mol})! Cannot compute FI."
+                )
                 return pd.DataFrame()
-            
-            # Check upper bounds if possible (requires access to model internals)
-            if hasattr(model, 'mol_embed') and hasattr(model.mol_embed, 'num_embeddings'):
-                max_mol = model.mol_embed.num_embeddings
-                if (mol_idx_full >= max_mol).any():
-                    print(f"  ERROR: Molecule indices out of bounds (>= {max_mol})! Cannot compute FI.")
-                    return pd.DataFrame()
-                    
-            if hasattr(model, 'iso_embed') and hasattr(model.iso_embed, 'num_embeddings'):
-                max_iso = model.iso_embed.num_embeddings
-                if (iso_idx_full >= max_iso).any():
-                    print(f"  ERROR: Isotopologue indices out of bounds (>= {max_iso})! Cannot compute FI.")
-                    return pd.DataFrame()
+
+        if hasattr(model, "iso_embed") and hasattr(model.iso_embed, "num_embeddings"):
+            max_iso = model.iso_embed.num_embeddings
+            if (iso_idx_full >= max_iso).any():
+                print(
+                    f"  ERROR: Isotopologue indices out of bounds (>= {max_iso})! Cannot compute FI."
+                )
+                return pd.DataFrame()
 
     # Helper to call model with correct args
     def predict(input_x):
@@ -355,6 +366,5 @@ def get_feature_importance(
             plot_feature_importance(df_imp, output_dir)
         except Exception as e:
             print(f"  WARNING: Failed to plot feature importance. Error: {e}")
-
 
     return df_imp

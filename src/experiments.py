@@ -76,6 +76,7 @@ def run_single_train_test(
     sampler = train_sampler
     if sampler is None and data_config.get("use_weighted_sampler", False):
         from .data_loader import get_weighted_sampler
+
         sampler = get_weighted_sampler(train_df, target_col)
         print("Using WeightedSampler for training.")
 
@@ -86,21 +87,23 @@ def run_single_train_test(
     test_loader = DataLoader(test_ds, batch_size=batch_size)
 
     # Get criterion and optimizer from factories
+    # Allow optimizer-specific params (e.g., weight_decay) via config["training"]["optimizer_params"]
+    optimizer_params = train_config.get("optimizer_params", {}) or {}
     criterion = get_loss_function(config)
     optimizer = get_optimizer(model, config)
     print(f"Using Optimizer: {train_config.get('optimizer', 'Adam')}")
     print(f"Using Loss Function: {train_config.get('loss_function', 'SmoothL1Loss')}")
 
-    scheduler_config = train_config.get('scheduler', {})
+    scheduler_config = train_config.get("scheduler", {})
     scheduler = None
-    if scheduler_config.get('enabled', False):
+    if scheduler_config.get("enabled", False):
         print(f"Using ReduceLROnPlateau Scheduler: {scheduler_config}")
         scheduler = ReduceLROnPlateau(
-            optimizer,
-            mode=scheduler_config.get('mode', 'min'),
-            factor=scheduler_config.get('factor', 0.1),
-            patience=scheduler_config.get('patience', 10),
-            min_lr=float(scheduler_config.get('min_lr', 1e-6))
+            optimizer(optimizer_params.get("weight_decay", 0.0)),
+            mode=scheduler_config.get("mode", "min"),
+            factor=scheduler_config.get("factor", 0.1),
+            patience=scheduler_config.get("patience", 10),
+            min_lr=float(scheduler_config.get("min_lr", 1e-6)),
         )
 
     # Initialize Early Stopping
@@ -222,7 +225,7 @@ def run_cross_validation(
     """
     exp_config = config["experiment"]
     train_config = config["training"]
-    data_config = config['data']
+    data_config = config["data"]
     k_folds = exp_config.get("k_folds", 5)
     seed = exp_config.get("seed", 42)
     batch_size = train_config.get("batch_size", 128)
@@ -247,7 +250,7 @@ def run_cross_validation(
     stratify_on_col = "iso"
 
     # Get Stratification col
-    stratify_on_col = 'iso' 
+    stratify_on_col = "iso"
     if stratify_on_col not in full_df.columns:
         print(f"WARNING: Stratification column '{stratify_on_col}' not found.")
         print(
@@ -262,8 +265,8 @@ def run_cross_validation(
         split_iterator = kf.split(full_df, full_df[stratify_on_col])
 
     # Index cols for dataloader
-    mol_col = data_config.get('molecule_idx_col')
-    iso_col = data_config.get('iso_idx_col')
+    mol_col = data_config.get("molecule_idx_col")
+    iso_col = data_config.get("iso_idx_col")
 
     for fold, (train_idx, val_idx) in enumerate(split_iterator):
         print(f"\n=== Fold {fold+1}/{k_folds} ===")
@@ -279,43 +282,63 @@ def run_cross_validation(
         valid_scaled_cols = [col for col in scaled_cols if col in feature_cols]
         if valid_scaled_cols:
             # Cast all to float before scaling
-            train_df_fold[valid_scaled_cols] = train_df_fold[valid_scaled_cols].astype(float)
-            val_df_fold[valid_scaled_cols] = val_df_fold[valid_scaled_cols].astype(float)
-            
-            train_df_fold.loc[:, valid_scaled_cols] = scaler.fit_transform(train_df_fold[valid_scaled_cols])
-            val_df_fold.loc[:, valid_scaled_cols] = scaler.transform(val_df_fold[valid_scaled_cols])
-        
-        train_ds = MoleculeDataset(train_df_fold, feature_cols, target_col, mol_col, iso_col)
-        val_ds = MoleculeDataset(val_df_fold, feature_cols, target_col, mol_col, iso_col)
+            train_df_fold[valid_scaled_cols] = train_df_fold[valid_scaled_cols].astype(
+                float
+            )
+            val_df_fold[valid_scaled_cols] = val_df_fold[valid_scaled_cols].astype(
+                float
+            )
+
+            train_df_fold.loc[:, valid_scaled_cols] = scaler.fit_transform(
+                train_df_fold[valid_scaled_cols]
+            )
+            val_df_fold.loc[:, valid_scaled_cols] = scaler.transform(
+                val_df_fold[valid_scaled_cols]
+            )
+
+        train_ds = MoleculeDataset(
+            train_df_fold, feature_cols, target_col, mol_col, iso_col
+        )
+        val_ds = MoleculeDataset(
+            val_df_fold, feature_cols, target_col, mol_col, iso_col
+        )
 
         # Get WeightedSampler if specified in config
         sampler = None
         if data_config.get("use_weighted_sampler", False):
             from .data_loader import get_weighted_sampler
+
             sampler = get_weighted_sampler(train_df_fold, target_col)
             print(f"  Fold {fold+1}: Using WeightedSampler for training.")
 
-        pin_memory = (device.type == 'cuda')
+        pin_memory = device.type == "cuda"
         train_loader = DataLoader(
-            train_ds, batch_size=batch_size, shuffle=(sampler is None), sampler=sampler, pin_memory=pin_memory
+            train_ds,
+            batch_size=batch_size,
+            shuffle=(sampler is None),
+            sampler=sampler,
+            pin_memory=pin_memory,
         )
-        val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_memory)
+        val_loader = DataLoader(
+            val_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_memory
+        )
 
         # Get a fresh model and optimizer for each fold
         model = get_model(config, input_dim=len(feature_cols)).to(device)
         optimizer = get_optimizer(model, config)
 
-        scheduler_config = train_config.get('scheduler', {})
+        scheduler_config = train_config.get("scheduler", {})
         scheduler = None
-        if scheduler_config.get('enabled', False):
+        if scheduler_config.get("enabled", False):
             # Only print for first fold
-            if fold == 0: print(f"Using ReduceLROnPlateau Scheduler: {scheduler_config}")
+            if fold == 0:
+                print(f"Using ReduceLROnPlateau Scheduler: {scheduler_config}")
             scheduler = ReduceLROnPlateau(
                 optimizer,
-                mode='min',
-                factor=scheduler_config.get('factor', 0.1),
-                patience=scheduler_config.get('patience', 10),
-                min_lr=float(scheduler_config.get('min_lr', 1e-6))
+                mode="min",
+                factor=scheduler_config.get("factor", 0.1),
+                patience=scheduler_config.get("patience", 10),
+                min_lr=float(scheduler_config.get("min_lr", 1e-6)),
             )
 
         # Initialize Early Stopping for the fold
@@ -364,7 +387,9 @@ def run_cross_validation(
                     best_model_state = new_best_state
                     best_val_loss = early_stopper.val_loss_min
                 if stop_training:
-                    print(f"  Fold {fold+1}: Early stopping triggered at epoch {epoch+1}")
+                    print(
+                        f"  Fold {fold+1}: Early stopping triggered at epoch {epoch+1}"
+                    )
                     epoch_stopped = epoch + 1
                     break
             else:
@@ -430,7 +455,7 @@ def run_experiment(
     feature_cols: list,
     target_col: str,
     device: torch.device,
-    train_sampler=None
+    train_sampler=None,
 ):
     """
     Main dispatcher function.

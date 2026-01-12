@@ -37,7 +37,10 @@ def main(config_path: str):
     setup_reproducibility(seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Current device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
+    print(
+        "Current device:",
+        torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU",
+    )
 
     # === 2. Load Data ===
     print("\n" + "=" * 60)
@@ -52,17 +55,17 @@ def main(config_path: str):
         scaler,
         n_molecules,
         n_isos,
-        train_sampler
+        train_sampler,
     ) = load_data(config)
     print(f"Loaded data with {len(feature_cols)} features.")
     print(f"Found {n_molecules} molecules and {n_isos} isotopologues.")
 
     # === Update Config with Model Params ===
-    if 'params' not in config['model']:
-        config['model']['params'] = {}
-        
-    config['model']['params']['n_molecules'] = n_molecules
-    config['model']['params']['n_isos'] = n_isos
+    if "params" not in config["model"]:
+        config["model"]["params"] = {}
+
+    config["model"]["params"]["n_molecules"] = n_molecules
+    config["model"]["params"]["n_isos"] = n_isos
 
     # === 3. Run Experiment ===
     print("\n" + "=" * 60)
@@ -76,7 +79,7 @@ def main(config_path: str):
         feature_cols,
         target_col,
         device,
-        train_sampler
+        train_sampler,
     )
 
     # === 4. Post-Processing & Analysis ===
@@ -91,13 +94,15 @@ def main(config_path: str):
     # Filter by isos_of_interest (if specified)
     iso_config = analysis_config.get("isotopologue_analysis", {})
     isos_of_interest = iso_config.get("isos_of_interest", [])
-    
+
     # Also check post_processing config for backward compatibility or overrides
     if not isos_of_interest:
-        isos_of_interest = analysis_config.get("post_processing", {}).get("isos_of_interest", [])
+        isos_of_interest = analysis_config.get("post_processing", {}).get(
+            "isos_of_interest", []
+        )
 
     if isos_of_interest and not pred_df.empty:
-        iso_col = config['data'].get('iso_col', 'iso')
+        iso_col = config["data"].get("iso_col", "iso")
         if iso_col in pred_df.columns:
             print(f"Filtering predictions to isos_of_interest: {isos_of_interest}")
             pred_df = pred_df[pred_df[iso_col].isin(isos_of_interest)].copy()
@@ -121,15 +126,19 @@ def main(config_path: str):
             # Drop rows not in isos_of_interest
             isos_of_interest = pp_config.get("isos_of_interest", [])
             if isos_of_interest:
-                pred_df = pred_df[pred_df[config['data']['iso_col']].isin(isos_of_interest)]
+                pred_df = pred_df[
+                    pred_df[config["data"]["iso_col"]].isin(isos_of_interest)
+                ]
 
             if "Original_abs_error" in pred_df.columns:
                 try:
                     mean_orig_mae = pred_df["Original_abs_error"].mean()
                     mean_corr_mae = pred_df["Corrected_abs_error"].mean()
-                    with np.errstate(divide='ignore', invalid='ignore'):
+                    with np.errstate(divide="ignore", invalid="ignore"):
                         pct_imp = 100 * (mean_orig_mae - mean_corr_mae) / mean_orig_mae
-                        overall_metrics["overall_pct_improvement"] = pct_imp if np.isfinite(pct_imp) else 0.0
+                        overall_metrics["overall_pct_improvement"] = (
+                            pct_imp if np.isfinite(pct_imp) else 0.0
+                        )
                 except Exception as e:
                     print(f"  Could not calculate overall improvement: {e}")
         else:
@@ -151,10 +160,12 @@ def main(config_path: str):
         if fi_config.get("enabled", False) and results["model"] and not test_df.empty:
 
             print("\nCalculating feature importance...")
-            mol_col = config['data'].get('molecule_idx_col')
-            iso_col = config['data'].get('iso_idx_col')
-            
-            test_ds = MoleculeDataset(test_df, feature_cols, target_col, mol_col, iso_col)
+            mol_col = config["data"].get("molecule_idx_col")
+            iso_col = config["data"].get("iso_idx_col")
+
+            test_ds = MoleculeDataset(
+                test_df, feature_cols, target_col, mol_col, iso_col
+            )
             test_loader = torch.utils.data.DataLoader(
                 test_ds,
                 batch_size=config.get("training", {}).get("batch_size", 128),
@@ -168,7 +179,7 @@ def main(config_path: str):
                 feature_cols,
                 metric=fi_config.get("metric", "mae"),
                 output_dir=output_dir,
-                plot_fi=fi_config.get("plot", True)
+                plot_fi=fi_config.get("plot", True),
             )
             fi_path = os.path.join(output_dir, "CSVs", "feature_importance.csv")
             feature_importance_df.to_csv(fi_path, index=False)

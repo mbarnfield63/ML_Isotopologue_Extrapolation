@@ -184,7 +184,7 @@ def plot_iso_residuals_all(
         # Calculate mean average error reduction percentage for this group
         mean_orig_mae = pred_df["Original_abs_error"][iso_mask].mean()
         mean_corr_mae = pred_df["Corrected_abs_error"][iso_mask].mean()
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             mean_reduction = 100 * (mean_orig_mae - mean_corr_mae) / mean_orig_mae
             if not np.isfinite(mean_reduction):
                 mean_reduction = 0.0
@@ -225,9 +225,7 @@ def plot_iso_residuals_all(
         markerscale=5,
     )
 
-    mae_reduction_text = (
-        f"Overall Residuals Reduction\n{overall_pct_improvement:.2f}%"
-    )
+    mae_reduction_text = f"Overall Residuals Reduction\n{overall_pct_improvement:.2f}%"
     final_ax = axes[-1, -1] if n_col > 1 else axes[-1, 0]
     final_ax.text(
         0.5,
@@ -256,7 +254,7 @@ def plot_metrics_bars(iso_results_df, output_dir, figsize=(12, 5)):
     # Sort by group name
     iso_results_df = iso_results_df.sort_values("Group")
     isotopologues = iso_results_df["Group"].astype(str)
-    
+
     maes = ["Original MAE", "ML Corrected MAE"]
     rmses = ["Original RMSE", "ML Corrected RMSE"]
     x = np.arange(len(isotopologues))
@@ -332,7 +330,9 @@ def plot_residuals_boxplot(pred_df, group_by_col, output_dir=None):
     axes[0].boxplot(
         data_original,
         patch_artist=True,
-        boxprops=dict(facecolor=COLORS["original"], color=COLORS["original"], alpha=0.7),
+        boxprops=dict(
+            facecolor=COLORS["original"], color=COLORS["original"], alpha=0.7
+        ),
         medianprops=dict(color=COLORS["line"]),
     )
     axes[0].axhline(0, color=COLORS["line"], linestyle="--")
@@ -351,7 +351,9 @@ def plot_residuals_boxplot(pred_df, group_by_col, output_dir=None):
     axes[1].boxplot(
         data_corrected,
         patch_artist=True,
-        boxprops=dict(facecolor=COLORS["corrected"], color=COLORS["corrected"], alpha=0.7),
+        boxprops=dict(
+            facecolor=COLORS["corrected"], color=COLORS["corrected"], alpha=0.7
+        ),
         medianprops=dict(color=COLORS["line"]),
     )
     axes[1].axhline(0, color=COLORS["line"], linestyle="--")
@@ -371,10 +373,13 @@ def plot_residuals_boxplot(pred_df, group_by_col, output_dir=None):
     axes[1].set_xticklabels(all_isos, rotation=45, ha="right", fontsize=16)
     axes[1].set_xlabel(group_by_col.capitalize())
 
-    max_abs_err = max(
-        np.abs(pred_df["Original_error"]).max(),
-        np.abs(pred_df["Corrected_error"]).max()
-    ) * 1.1
+    max_abs_err = (
+        max(
+            np.abs(pred_df["Original_error"]).max(),
+            np.abs(pred_df["Corrected_error"]).max(),
+        )
+        * 1.1
+    )
     for ax in axes:
         ax.set_ylim(-max_abs_err, max_abs_err)
 
@@ -399,10 +404,13 @@ def plot_hist_error_energy(pred_df, output_dir=None):
     corr_mae = np.mean(np.abs(pred_df["Corrected_error"]))
     corr_rmse = np.sqrt(np.mean(pred_df["Corrected_error"] ** 2))
 
-    max_abs_err = max(
-        np.abs(pred_df["Original_error"]).max(),
-        np.abs(pred_df["Corrected_error"]).max()
-    ) * 1.1
+    max_abs_err = (
+        max(
+            np.abs(pred_df["Original_error"]).max(),
+            np.abs(pred_df["Corrected_error"]).max(),
+        )
+        * 1.1
+    )
     bins = np.linspace(-max_abs_err, max_abs_err, 50)
 
     axes[0].hist(
@@ -470,13 +478,9 @@ def plot_feature_importance(df, output_dir):
 
     fig_height = max(8, n_features * 0.3)  # Dynamic height
     fig, ax = plt.subplots(figsize=(15, fig_height))
-    
-    ax.barh(
-        range(n_features),
-        sorted_df["importance"].values,
-        color=COLORS["original"]
-    )
-    
+
+    ax.barh(range(n_features), sorted_df["importance"].values, color=COLORS["original"])
+
     ax.set_yticks(range(n_features))
     ax.set_yticklabels(sorted_df["feature"].values, fontsize=10)
     ax.grid(axis="x", alpha=0.3)
@@ -493,6 +497,7 @@ def plot_feature_importance(df, output_dir):
 
 
 # === Main Plotting Function ===
+
 
 def plot_all_results(
     results: dict,
@@ -513,10 +518,10 @@ def plot_all_results(
 
     # Check if this was a CV run
     is_cv_run = not results["cv_predictions_df"].empty
-    
+
     # Check if post-processing was run
     has_pp_cols = "Original_error" in pred_df.columns
-    
+
     # Get shared config values
     group_by_col = plot_config.get("group_by_col", "iso")
     energy_col = plot_config.get("true_energy_col", "E_Ma_iso")
@@ -527,13 +532,11 @@ def plot_all_results(
         pred_df = pred_df[pred_df[group_by_col].isin(isos)]
         if iso_results_df is not None and not iso_results_df.empty:
             iso_results_df = iso_results_df[iso_results_df["Group"].isin(isos)]
-    
+
     # --- 1. Plot Loss Curve ---
     if plot_config.get("plot_loss", True) and not is_cv_run:
         try:
-            plot_loss(
-                results["train_losses"], results["val_losses"], output_dir
-            )
+            plot_loss(results["train_losses"], results["val_losses"], output_dir)
         except Exception as e:
             print(f"  WARNING: Failed to plot loss curve. Error: {e}")
 
@@ -541,16 +544,14 @@ def plot_all_results(
     if plot_config.get("plot_pred_vs_true", True):
         try:
             if is_cv_run:
-                plot_predictions_vs_true_cv(
-                    results["cv_predictions_df"], output_dir
-                )
+                plot_predictions_vs_true_cv(results["cv_predictions_df"], output_dir)
             else:
                 plot_predictions_vs_true(
                     pred_df["y_true"], pred_df["y_pred"], output_dir
                 )
         except Exception as e:
             print(f"  WARNING: Failed to plot pred-vs-true. Error: {e}")
-            
+
     # --- 3. Plot Grouped Metrics Bars ---
     if plot_config.get("plot_metric_bars", True) and has_pp_cols:
         if iso_results_df is None or iso_results_df.empty:
@@ -560,7 +561,7 @@ def plot_all_results(
                 plot_metrics_bars(iso_results_df, output_dir)
             except Exception as e:
                 print(f"  WARNING: Failed to plot metric bars. Error: {e}")
-    
+
     # --- 4. Plot Residual Histograms ---
     if plot_config.get("plot_residual_hist", True) and has_pp_cols:
         try:
@@ -580,10 +581,14 @@ def plot_all_results(
 
     # --- 6. Plot All Group Residuals ---
     if plot_config.get("plot_iso_residuals", True) and has_pp_cols:
-        if (group_by_col not in pred_df.columns or
-            energy_col not in pred_df.columns or
-            "overall_pct_improvement" not in overall_metrics):
-            print(f"  Skipping group residuals plot (missing required columns or metrics).")
+        if (
+            group_by_col not in pred_df.columns
+            or energy_col not in pred_df.columns
+            or "overall_pct_improvement" not in overall_metrics
+        ):
+            print(
+                f"  Skipping group residuals plot (missing required columns or metrics)."
+            )
         else:
             try:
                 plot_iso_residuals_all(
@@ -591,7 +596,7 @@ def plot_all_results(
                     overall_metrics["overall_pct_improvement"],
                     group_by_col,
                     energy_col,
-                    output_dir=output_dir
+                    output_dir=output_dir,
                 )
             except Exception as e:
                 print(f"  WARNING: Failed to plot group residuals. Error: {e}")

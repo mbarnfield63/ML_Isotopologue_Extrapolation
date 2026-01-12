@@ -36,6 +36,7 @@ def get_loss_function(config: dict):
 # === Optimizer Factory ===
 OPTIMIZERS = {
     "Adam": optim.Adam,
+    "AdamW": optim.AdamW,
     "SGD": optim.SGD,
 }
 
@@ -127,11 +128,11 @@ def train(
             X, y, mol_idx, iso_idx = batch
             X, y = X.to(device), y.to(device)
             mol_idx, iso_idx = mol_idx.to(device), iso_idx.to(device)
-            
+
             optimizer.zero_grad()
             # Pass extra args to forward
             outputs = model(X, mol_idx, iso_idx)
-            
+
         else:
             X, y = batch[0].to(device), batch[1].to(device)
             optimizer.zero_grad()
@@ -205,10 +206,10 @@ def get_predictions(
             else:
                 X, y = batch[0].to(device), batch[1].to(device)
                 outputs = model(X)
-                
+
             y_pred_list.append(outputs.view(-1).cpu().numpy())
             y_true_list.append(y.view(-1).cpu().numpy())
-            
+
     y_true = np.concatenate(y_true_list) if y_true_list else np.array([])
     y_pred = np.concatenate(y_pred_list) if y_pred_list else np.array([])
     return y_true, y_pred
