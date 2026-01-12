@@ -87,8 +87,6 @@ def run_single_train_test(
     test_loader = DataLoader(test_ds, batch_size=batch_size)
 
     # Get criterion and optimizer from factories
-    # Allow optimizer-specific params (e.g., weight_decay) via config["training"]["optimizer_params"]
-    optimizer_params = train_config.get("optimizer_params", {}) or {}
     criterion = get_loss_function(config)
     optimizer = get_optimizer(model, config)
     print(f"Using Optimizer: {train_config.get('optimizer', 'Adam')}")
@@ -99,7 +97,7 @@ def run_single_train_test(
     if scheduler_config.get("enabled", False):
         print(f"Using ReduceLROnPlateau Scheduler: {scheduler_config}")
         scheduler = ReduceLROnPlateau(
-            optimizer(optimizer_params.get("weight_decay", 0.0)),
+            optimizer,
             mode=scheduler_config.get("mode", "min"),
             factor=scheduler_config.get("factor", 0.1),
             patience=scheduler_config.get("patience", 10),

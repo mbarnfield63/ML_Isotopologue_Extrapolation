@@ -49,6 +49,7 @@ def get_optimizer(model: nn.Module, config: dict):
     train_config = config.get("training", {})
     optim_name = train_config.get("optimizer", "Adam")
     learning_rate = float(train_config.get("learning_rate", 1e-3))
+    weight_decay = float(train_config.get("weight_decay", 0.0))
 
     if optim_name not in OPTIMIZERS:
         raise ValueError(
@@ -56,7 +57,7 @@ def get_optimizer(model: nn.Module, config: dict):
         )
 
     optim_class = OPTIMIZERS[optim_name]
-    return optim_class(model.parameters(), lr=learning_rate)
+    return optim_class(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
 
 # === EarlyStopping Class ===
