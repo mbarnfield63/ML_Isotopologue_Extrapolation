@@ -17,9 +17,9 @@ PARENT_ISO = 26  # C12-O16
 MATCH_KEYS = ["v", "J"]
 
 # Paths
-DUO_DIR = "Data/co/calc"
-MARVEL_DIR = "Data/co/marvel"
-OUTPUT_DIR = "Data/Processed"
+DUO_DIR = "data/co/calc"
+MARVEL_DIR = "data/co/marvel"
+OUTPUT_DIR = "data/processed"
 
 
 # --- Feature Engineering Functions ---
@@ -327,7 +327,7 @@ if __name__ == "__main__":
             columns=[c for c in drops if c in df_final_train.columns], inplace=True
         )
 
-        train_path = os.path.join(OUTPUT_DIR, "CO_minor_isos_processed.csv")
+        train_path = os.path.join(OUTPUT_DIR, "CO_minor_isos_training.csv")
         df_final_train.to_csv(train_path, index=False)
         print(f"Saved Training Data: {train_path} ({len(df_final_train)} rows)")
     else:
@@ -354,7 +354,7 @@ if __name__ == "__main__":
             columns=[c for c in drops if c in df_final_ca.columns], inplace=True
         )
 
-        ca_path = os.path.join(OUTPUT_DIR, "CO_minor_inference_set.csv")
+        ca_path = os.path.join(OUTPUT_DIR, "CO_minor_isos_inference.csv")
         df_final_ca.to_csv(ca_path, index=False)
         print(f"Saved Ca-Only Data: {ca_path} ({len(df_final_ca)} rows)")
     else:
