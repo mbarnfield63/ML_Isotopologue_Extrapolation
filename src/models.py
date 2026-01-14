@@ -291,14 +291,6 @@ class H2O_Hybrid(nn.Module):
                 head[-1].bias.fill_(float(bias_value))
 
 
-import torch
-import torch.nn as nn
-
-
-import torch
-import torch.nn as nn
-
-
 class H2O_HeavySkipMLP(nn.Module):
     def __init__(self, input_dim: int, dropout: float = 0.05, **kwargs):
         super().__init__()
@@ -396,3 +388,29 @@ def get_model(config: dict, input_dim: int):
         raise
 
     return model
+
+
+# For adaptive isotope weighting based on validation MAE
+class IsoWeightTracker:
+    def __init__(self, base_weights, alpha=0.3):
+        self.base_weights = base_weights.copy()
+        self.alpha = alpha
+        self.prev_mae = {}
+
+    def update(self, iso_mae_dict):
+        for iso, mae in iso_mae_dict.items():
+            if iso in self.prev_mae:
+                self.prev_mae[iso] = (
+                    self.alpha * mae + (1 - self.alpha) * self.prev_mae[iso]
+                )
+            else:
+                self.prev_mae[iso] = mae
+
+        mae_vals = np.array(list(self.prev_mae.values()))
+        inv_mae = 1.0 / (mae_vals + 1e-6)
+        inv_mae /= inv_mae.mean()
+        for (iso, _), inv in zip(self.prev_mae.items(), inv_mae):
+            self.base_weights[iso] = float(inv)
+
+    def get(self):
+        return self.base_weights

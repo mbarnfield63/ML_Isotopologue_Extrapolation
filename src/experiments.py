@@ -11,7 +11,7 @@ from sklearn.preprocessing import StandardScaler
 
 # === Imports from other src modules ===
 try:
-    from .data_loader import MoleculeDataset
+    from .data_loader import MoleculeDataset, calculate_class_weights
     from .models import get_model
     from .training import (
         get_loss_function,
@@ -23,7 +23,7 @@ try:
     )
 except ImportError:
     print("Running as script, using standard imports.")
-    from data_loader import MoleculeDataset
+    from data_loader import MoleculeDataset, calculate_class_weights
     from models import get_model
     from training import (
         get_loss_function,
@@ -35,7 +35,110 @@ except ImportError:
     )
 
 
-# === Experiment Runners ===
+def train_final_model(
+    config: dict,
+    full_train_df: pd.DataFrame,
+    feature_cols: list,
+    target_col: str,
+    device: torch.device,
+    epochs: int,
+):
+    """
+    Trains a final model on the entire available dataset (Train + Val).
+    """
+    print("\n" + "=" * 60)
+    print(f"REFIT: Training Final Model on Combined Data (n={len(full_train_df)})")
+    print(f"       Training for fixed {epochs} epochs (derived from CV average)")
+    print("=" * 60)
+
+    # 1. Setup Data
+    mol_col = config["data"].get("molecule_idx_col")
+    iso_col = config["data"].get("iso_idx_col")
+
+    train_ds = MoleculeDataset(
+        full_train_df, feature_cols, target_col, mol_col, iso_col
+    )
+
+    sampler = None
+    if config["data"].get("use_weighted_sampler", False):
+        try:
+            from .data_loader import get_weighted_sampler
+
+            sampler = get_weighted_sampler(full_train_df, target_col)
+            print("Using WeightedSampler for final refit.")
+        except ImportError:
+            print(
+                "Warning: Could not import get_weighted_sampler. using random shuffle."
+            )
+
+    batch_size = config["training"].get("batch_size", 128)
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=(sampler is None), sampler=sampler
+    )
+
+    # 2. Setup Model & Optimizer
+    input_dim = len(feature_cols)
+    model = get_model(config, input_dim).to(device)
+    optimizer = get_optimizer(model, config)
+
+    # === Loss Setup (Split Train vs Eval not needed here, but weighting is) ===
+    # reduction='none' because manual weights might be applied in train()
+    train_criterion = get_loss_function(config, reduction="none")
+
+    loss_weights_tensor = None
+    weight_config = config.get("weighting", {})
+    if weight_config.get("enabled", False):
+        iso_col_name = config["data"].get("iso_col", "iso")
+        class_weights_dict = calculate_class_weights(
+            full_train_df, iso_col_name, weight_config
+        )
+
+        iso_idx_col = config["data"].get("iso_idx_col", "iso_idx_encoded")
+        if iso_idx_col in full_train_df.columns:
+            idx_map = (
+                full_train_df[[iso_idx_col, iso_col_name]]
+                .drop_duplicates()
+                .set_index(iso_idx_col)[iso_col_name]
+            )
+            max_idx = full_train_df[iso_idx_col].max()
+            loss_weights_tensor = torch.ones(
+                max_idx + 1, dtype=torch.float32, device=device
+            )
+
+            for idx, iso_label in idx_map.items():
+                if iso_label in class_weights_dict:
+                    loss_weights_tensor[idx] = class_weights_dict[iso_label]
+            print("  Final Refit: Loss weights applied.")
+
+    # Init Bias
+    if config["training"].get("init_bias_to_mean", False):
+        try:
+            mean_target = float(
+                np.mean(full_train_df[target_col].values.astype(np.float32))
+            )
+            model.init_output_bias(mean_target)
+        except Exception:
+            pass
+
+    # 3. Training Loop
+    model.train()
+    for epoch in range(epochs):
+        avg_loss = train(
+            model,
+            train_loader,
+            optimizer,
+            device,
+            train_criterion,
+            class_weights=loss_weights_tensor,
+        )
+
+        if (epoch + 1) % 10 == 0 or epoch == epochs - 1:
+            print(f"  Refit Epoch {epoch+1:3d}/{epochs} | Train Loss: {avg_loss:.6f}")
+
+    print("Refit complete.")
+    return model
+
+
 def run_single_train_test(
     config: dict,
     model: nn.Module,
@@ -86,12 +189,42 @@ def run_single_train_test(
     val_loader = DataLoader(val_ds, batch_size=batch_size)
     test_loader = DataLoader(test_ds, batch_size=batch_size)
 
-    # Get criterion and optimizer from factories
-    criterion = get_loss_function(config)
+    # 1. For Training: 'none' reduction to allow manual weighting in train()
+    train_criterion = get_loss_function(config, reduction="none")
+    # 2. For Evaluation: 'mean' reduction so evaluate() receives a scalar
+    eval_criterion = get_loss_function(config, reduction="mean")
+
     optimizer = get_optimizer(model, config)
     print(f"Using Optimizer: {train_config.get('optimizer', 'Adam')}")
     print(f"Using Loss Function: {train_config.get('loss_function', 'SmoothL1Loss')}")
 
+    # === Calculate Loss Weights ===
+    loss_weights_tensor = None
+    weight_config = config.get("weighting", {})
+    if weight_config.get("enabled", False):
+        iso_col_name = config["data"].get("iso_col", "iso")
+        class_weights_dict = calculate_class_weights(
+            train_df, iso_col_name, weight_config
+        )
+
+        iso_idx_col = config["data"].get("iso_idx_col", "iso_idx_encoded")
+        if iso_idx_col in train_df.columns:
+            idx_map = (
+                train_df[[iso_idx_col, iso_col_name]]
+                .drop_duplicates()
+                .set_index(iso_idx_col)[iso_col_name]
+            )
+            max_idx = train_df[iso_idx_col].max()
+            loss_weights_tensor = torch.ones(
+                max_idx + 1, dtype=torch.float32, device=device
+            )
+
+            for idx, iso_label in idx_map.items():
+                if iso_label in class_weights_dict:
+                    loss_weights_tensor[idx] = class_weights_dict[iso_label]
+            print("Loss weights calculated and applied.")
+
+    # Scheduler & Early Stopping
     scheduler_config = train_config.get("scheduler", {})
     scheduler = None
     if scheduler_config.get("enabled", False):
@@ -104,7 +237,6 @@ def run_single_train_test(
             min_lr=float(scheduler_config.get("min_lr", 1e-6)),
         )
 
-    # Initialize Early Stopping
     early_stopping_config = train_config.get("early_stopping", {})
     early_stopper = None
     if early_stopping_config.get("enabled", False):
@@ -135,8 +267,20 @@ def run_single_train_test(
     epoch_stopped = epochs
 
     for epoch in range(epochs):
-        train_loss = train(model, train_loader, optimizer, device, criterion)
-        val_loss, val_rmse, val_mae = evaluate(model, val_loader, device, criterion)
+        # Use train_criterion (none) + weights
+        train_loss = train(
+            model,
+            train_loader,
+            optimizer,
+            device,
+            train_criterion,
+            class_weights=loss_weights_tensor,
+        )
+
+        # Use eval_criterion (mean) -> returns scalar
+        val_loss, val_rmse, val_mae = evaluate(
+            model, val_loader, device, eval_criterion
+        )
 
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -183,7 +327,9 @@ def run_single_train_test(
     # Final Test Evaluation
     print("\n" + "=" * 60)
     print("FINAL TEST PERFORMANCE:")
-    test_loss, test_rmse, test_mae = evaluate(model, test_loader, device, criterion)
+    test_loss, test_rmse, test_mae = evaluate(
+        model, test_loader, device, eval_criterion
+    )
     print(
         f"  Test Loss: {test_loss:.6f}\n  Test RMSE: {test_rmse:.6f}\n  Test MAE: {test_mae:.6f}"
     )
@@ -231,23 +377,17 @@ def run_cross_validation(
 
     fold_results, all_fold_preds = [], []
 
-    # Get non-feature columns to merge back for analysis
-    non_feature_cols = [col for col in full_df.columns if col not in feature_cols]
-
-    # Get loss function once
-    criterion = get_loss_function(config)
+    # 1. For Training: 'none' reduction to allow manual weighting in train()
+    train_criterion = get_loss_function(config, reduction="none")
+    # 2. For Evaluation: 'mean' reduction so evaluate() receives a scalar
+    eval_criterion = get_loss_function(config, reduction="mean")
 
     print("\n" + "=" * 60)
     print(f"STARTING: {k_folds}-Fold Cross-Validation ({config['run_name']})")
     print(f"Using Optimizer: {train_config.get('optimizer', 'Adam')}")
     print(f"Using Loss Function: {train_config.get('loss_function', 'SmoothL1Loss')}")
 
-    # This is the key to address the rare isotopologue problem.
-    # Stratify on the 'iso' column. This guarantees that each
-    # fold has the same *proportion* of each isotopologue as the full dataset.
-    stratify_on_col = "iso"
-
-    # Get Stratification col
+    # Stratification logic
     stratify_on_col = "iso"
     if stratify_on_col not in full_df.columns:
         print(f"WARNING: Stratification column '{stratify_on_col}' not found.")
@@ -293,6 +433,32 @@ def run_cross_validation(
             val_df_fold.loc[:, valid_scaled_cols] = scaler.transform(
                 val_df_fold[valid_scaled_cols]
             )
+
+        # === Calculate Loss Weights for this Fold ===
+        loss_weights_tensor = None
+        weight_config = config.get("weighting", {})
+        if weight_config.get("enabled", False):
+            iso_col_name = config["data"].get("iso_col", "iso")
+            class_weights_dict = calculate_class_weights(
+                train_df_fold, iso_col_name, weight_config
+            )
+
+            iso_idx_col = config["data"].get("iso_idx_col", "iso_idx_encoded")
+            if iso_idx_col in train_df_fold.columns:
+                idx_map = (
+                    train_df_fold[[iso_idx_col, iso_col_name]]
+                    .drop_duplicates()
+                    .set_index(iso_idx_col)[iso_col_name]
+                )
+                max_idx = train_df_fold[iso_idx_col].max()
+                loss_weights_tensor = torch.ones(
+                    max_idx + 1, dtype=torch.float32, device=device
+                )
+
+                for idx, iso_label in idx_map.items():
+                    if iso_label in class_weights_dict:
+                        loss_weights_tensor[idx] = class_weights_dict[iso_label]
+                print(f"  Fold {fold+1}: Loss weights calculated.")
 
         train_ds = MoleculeDataset(
             train_df_fold, feature_cols, target_col, mol_col, iso_col
@@ -363,8 +529,20 @@ def run_cross_validation(
         epoch_stopped = epochs
 
         for epoch in range(epochs):
-            train_loss = train(model, train_loader, optimizer, device, criterion)
-            val_loss, val_rmse, val_mae = evaluate(model, val_loader, device, criterion)
+            # TRAIN: Pass 'train_criterion' (none) + weights
+            train_loss = train(
+                model,
+                train_loader,
+                optimizer,
+                device,
+                train_criterion,
+                class_weights=loss_weights_tensor,
+            )
+
+            # EVAL: Pass 'eval_criterion' (mean)
+            val_loss, val_rmse, val_mae = evaluate(
+                model, val_loader, device, eval_criterion
+            )
 
             if scheduler:
                 scheduler.step(val_loss)
@@ -395,24 +573,26 @@ def run_cross_validation(
                     best_val_loss = val_loss
                     best_model_state = copy.deepcopy(model.state_dict())
 
-        if epoch_stopped == epochs:
-            print(f"  Fold {fold+1}: Training completed (all epochs).")
+        actual_stopped_epoch = epoch_stopped
+        if early_stopper and early_stopper.early_stop:
+            actual_stopped_epoch = epoch_stopped - early_stopper.counter
 
-        # Load best model state for this fold
+        # Final evaluation for this fold
         model.load_state_dict(best_model_state)
-
-        # Final evaluation for this fold on its validation set
-        val_loss, val_rmse, val_mae = evaluate(model, val_loader, device, criterion)
+        val_loss, val_rmse, val_mae = evaluate(
+            model, val_loader, device, eval_criterion
+        )
         print(
             f"Fold {fold+1} Final | Val RMSE: {val_rmse:.6f} | Val MAE: {val_mae:.6f}"
         )
+
         fold_results.append(
             {
                 "fold": fold + 1,
                 "val_loss": val_loss,
                 "val_rmse": val_rmse,
                 "val_mae": val_mae,
-                "stopped_epoch": epoch_stopped,
+                "stopped_epoch": actual_stopped_epoch,
             }
         )
 
@@ -504,10 +684,6 @@ def run_experiment(
         # --- Run a K-Fold Cross-Validation experiment ---
         full_cv_df = pd.concat([train_df, val_df], ignore_index=True)
         print(f"Running CV on combined train+val splits (n={len(full_cv_df)}).")
-        if not test_df.empty:
-            print(
-                f"Held-out test set (n={len(test_df)}) is not used by this version of CV."
-            )
 
         cv_results_df, cv_preds_df = run_cross_validation(
             config,
@@ -526,24 +702,27 @@ def run_experiment(
                 "test_predictions_df": cv_preds_df,
             }
         )
-        # Note: CV does not produce one single 'model' or 'test_results'
-        # The 'cv_results_df' (avg scores) is the key performance metric.
+
+        if config.get("inference", {}).get("enabled", False):
+            avg_epochs = int(cv_results_df["stopped_epoch"].mean())
+            if avg_epochs < 1:
+                avg_epochs = 1
+
+            final_train_df = pd.concat([train_df, val_df], ignore_index=True)
+
+            final_model = train_final_model(
+                config,
+                final_train_df,
+                feature_cols,
+                target_col,
+                device,
+                epochs=avg_epochs,
+            )
+            results["model"] = final_model
 
     elif exp_type == "multi_seed":
         # --- Run multiple 'single_run' experiments with different seeds ---
         print(f"Running Multi-Seed experiment... (Not yet fully implemented)")
-        # This is where your original idea of "running an 80:20 split 5 times"
-        # would be implemented. It's now called 'multi_seed' to be clear.
-
-        # TODO: This would involve:
-        # 1. Reading config['experiment']['seeds'] (e.g., [42, 43, 44])
-        # 2. Looping over each seed.
-        # 3. In the loop, re-split the data *from the beginning*
-        #    using the new seed. This means `load_data` would need to
-        #    accept a seed override.
-        # 4. Get a new model, and call run_single_train_test.
-        # 5. Aggregate all 'test_results' and 'test_predictions_df'
-        #    into lists in the 'results' dictionary.
         pass
 
     else:

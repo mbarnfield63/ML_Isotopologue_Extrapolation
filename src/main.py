@@ -14,6 +14,7 @@ from .analysis import (
     analyze_grouped_errors,
     get_feature_importance,
 )
+from .inference import run_inference_pipeline
 
 from .plotting import plot_all_results
 from .utils import load_config, create_output_dir, setup_reproducibility
@@ -222,6 +223,22 @@ def main(config_path: str):
         cv_summary_path = os.path.join(output_dir, "CSVs", "cv_summary_results.csv")
         results["cv_results_df"].to_csv(cv_summary_path, index=False)
         print(f"CV summary saved to {cv_summary_path}")
+
+    # === 7. Inference ===
+    if config.get("inference", {}).get("enabled", False) and results["model"]:
+        print("\n" + "=" * 60)
+        print("STEP 6: RUNNING INFERENCE")
+        print("=" * 60)
+
+        run_inference_pipeline(
+            config=config,
+            model=results["model"],
+            scaler=scaler,
+            feature_cols=feature_cols,
+            target_col=target_col,
+            device=device,
+            base_output_dir=output_dir,
+        )
 
     end_time = time.time()
     print("\n" + "=" * 60)

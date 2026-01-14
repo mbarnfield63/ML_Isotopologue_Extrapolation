@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import torch
+import os  # Added to handle filename parsing
 from torch.utils.data import Dataset, WeightedRandomSampler
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -57,52 +58,59 @@ class MoleculeDataset(Dataset):
         return tuple(items)
 
 
-def get_weighted_sampler(df, iso_col, weight_config):
+def calculate_class_weights(df, iso_col, weight_config):
     """
-    Creates a WeightedRandomSampler based on isotopologue frequencies
-    and manual overrides.
+    Calculates weights for each class based on inverse frequency and manual overrides.
+    Returns a dictionary: {iso_label: weight_value}
     """
     if not iso_col or iso_col not in df.columns:
-        return None
+        return {}
 
     # 1. Calculate base weights (inverse frequency)
     iso_counts = df[iso_col].value_counts()
     total_samples = len(df)
-
-    # Weight = Total / (Count * Number_of_Classes)
-    # This balances the classes perfectly if used as is
     n_classes = len(iso_counts)
+
+    # Base weight = Total / (Count * N_Classes)
     class_weights = {
         iso: total_samples / (count * n_classes) for iso, count in iso_counts.items()
     }
 
     # 2. Apply manual overrides from config
-    # e.g. weights: {626: 0.1, 636: 2.0}
     manual_weights = weight_config.get("manual_weights", {})
-
-    # Convert keys in manual_weights to match the type in df[iso_col] (usually int or str)
     first_val = df[iso_col].iloc[0]
 
-    # Normalize manual weights if provided
     for iso_key, multiplier in manual_weights.items():
-        # Try to match the key type
+        # Match key type to dataframe column type
         try:
             if isinstance(first_val, (int, np.integer)):
                 iso_key = int(iso_key)
             elif isinstance(first_val, str):
                 iso_key = str(iso_key)
         except:
-            pass  # Keep original key if casting fails
+            pass
 
         if iso_key in class_weights:
             class_weights[iso_key] *= multiplier
 
-    # 3. Assign a weight to every sample
+    return class_weights
+
+
+def get_weighted_sampler(df, iso_col, weight_config):
+    """
+    Creates a WeightedRandomSampler using calculate_class_weights.
+    """
+    # Reuse the logic above!
+    class_weights = calculate_class_weights(df, iso_col, weight_config)
+
+    if not class_weights:
+        return None
+
+    # Assign a weight to every sample
     sample_weights = df[iso_col].map(class_weights).fillna(0).values
     sample_weights = torch.from_numpy(sample_weights).double()
 
-    # 4. Create sampler
-    # replacement=True is required for oversampling rare classes
+    # Create sampler
     sampler = WeightedRandomSampler(
         sample_weights, len(sample_weights), replacement=True
     )
@@ -140,6 +148,17 @@ def load_data(config):
         print(f"- {path}")
         try:
             df = pd.read_csv(path)
+
+            # --- Auto-infer molecule column ---
+            if "molecule" not in df.columns:
+                filename = os.path.basename(path)
+                inferred_mol = filename.split("_")[0]
+
+                df["molecule"] = inferred_mol
+                print(
+                    f"  > Column 'molecule' not found. Inferred '{inferred_mol}' from filename."
+                )
+
             all_dfs.append(df)
             all_cols.update(df.columns)
         except FileNotFoundError:

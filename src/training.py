@@ -5,22 +5,21 @@ import torch.nn as nn
 from torch import optim
 
 
-# === Loss Function Factory ===
-# A dictionary mapping config names to torch.nn loss classes
-LOSS_FUNCTIONS = {
-    "SmoothL1Loss": nn.SmoothL1Loss,  # AKA: Huber loss
-    "MSELoss": nn.MSELoss,
-    "L1Loss": nn.L1Loss,  # AKA: Mean Absolute Error (MAE)
-}
-
-
-def get_loss_function(config: dict):
+def get_loss_function(config: dict, reduction="mean"):
     """
-    Reads the config and returns an instantiated loss function.
-    Defaults to SmoothL1Loss (Huber) if not specified.
+    Returns an instantiated loss function.
+    Added 'reduction' param to support weighted training (requires reduction='none').
     """
     train_config = config.get("training", {})
     loss_name = train_config.get("loss_function", "SmoothL1Loss")
+
+    # Map of names to classes
+    LOSS_FUNCTIONS = {
+        "SmoothL1Loss": nn.SmoothL1Loss,
+        "MSELoss": nn.MSELoss,
+        "L1Loss": nn.L1Loss,
+        "HuberLoss": nn.HuberLoss,
+    }
 
     if loss_name not in LOSS_FUNCTIONS:
         raise ValueError(
@@ -30,7 +29,12 @@ def get_loss_function(config: dict):
 
     # Instantiate the loss function
     loss_class = LOSS_FUNCTIONS[loss_name]
-    return loss_class()
+
+    # Handle Huber specific arg 'delta' if present in config, else default
+    if loss_name == "HuberLoss" or loss_name == "SmoothL1Loss":
+        return loss_class(reduction=reduction, beta=1.0)
+
+    return loss_class(reduction=reduction)
 
 
 # === Optimizer Factory ===
@@ -117,32 +121,56 @@ def train(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     criterion: nn.Module,
+    class_weights: torch.Tensor = None,
 ):
     """
-    Training loop for one epoch.
-    Returns: average loss over the dataloader.
+    Training loop with optional class-based weighting.
     """
     model.train()
     total_loss = 0.0
+
     for batch in dataloader:
-        if len(batch) == 4:
-            X, y, mol_idx, iso_idx = batch
-            X, y = X.to(device), y.to(device)
-            mol_idx, iso_idx = mol_idx.to(device), iso_idx.to(device)
-
-            optimizer.zero_grad()
-            # Pass extra args to forward
-            outputs = model(X, mol_idx, iso_idx)
-
-        else:
+        # 1. Unpack Batch
+        if len(batch) >= 4:
             X, y = batch[0].to(device), batch[1].to(device)
-            optimizer.zero_grad()
-            outputs = model(X)
+            # We need iso_idx (index 3) to look up weights
+            iso_idx = batch[3].to(device)
 
-        loss = criterion(outputs, y)
+            # Handle model inputs
+            if len(batch) >= 4:
+                mol_idx = batch[2].to(device)
+                outputs = model(X, mol_idx, iso_idx)
+            else:
+                outputs = model(X)
+        else:
+            # Fallback for simple datasets
+            X, y = batch[0].to(device), batch[1].to(device)
+            outputs = model(X)
+            iso_idx = None
+
+        optimizer.zero_grad()
+
+        # 2. Calculate Loss
+        if class_weights is not None and iso_idx is not None:
+            # Look up the weight for each sample in the batch
+            # class_weights shape: [Num_Isos] -> batch_weights shape: [Batch_Size]
+            batch_weights = class_weights[iso_idx]
+
+            # Compute raw unreduced loss (vector of errors)
+            raw_loss = criterion(outputs, y)
+
+            # Apply weights manually and mean
+            loss = (raw_loss * batch_weights).mean()
+        else:
+            # Standard unweighted loss
+            loss = criterion(outputs, y)
+            if loss.ndim > 0:  # If criterion was 'none' but no weights provided
+                loss = loss.mean()
+
         loss.backward()
         optimizer.step()
         total_loss += float(loss.item())
+
     return total_loss / max(1, len(dataloader))
 
 
