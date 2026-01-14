@@ -100,7 +100,6 @@ class EarlyStopping:
         elif score < self.best_score + self.delta:
             # Loss did not improve (or not by enough)
             self.counter += 1
-            print(f"  EarlyStopping counter: {self.counter} out of {self.patience}")
             if self.counter >= self.patience:
                 self.early_stop = True
             best_model_state = None  # Don't return a new best state
@@ -108,6 +107,10 @@ class EarlyStopping:
             # Loss improved
             self.best_score = score
             self.val_loss_min = val_loss
+            if self.counter > 0:
+                print(
+                    f"  Resetting early stopping counter from {self.counter}/{self.patience}."
+                )
             self.counter = 0
             best_model_state = copy.deepcopy(model.state_dict())
 
