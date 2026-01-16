@@ -134,57 +134,20 @@ def load_data(config):
     exp_config = config["experiment"]
 
     # === 1. Load and Combine Data ===
-    paths = data_config["paths"]
-    if not isinstance(paths, list):
-        paths = [paths]
+    training_data = data_config["training"]
+    if not isinstance(training_data, list):
+        training_data = [training_data]
 
-    all_dfs = []
-    all_cols = set()
-
-    print("Loading data from paths:")
-    for path in paths:
+    print("Loading data:")
+    for path in training_data:
         if not path:
             continue  # Skip empty path entries
         print(f"- {path}")
         try:
             df = pd.read_csv(path)
 
-            # --- Auto-infer molecule column ---
-            if "molecule" not in df.columns:
-                filename = os.path.basename(path)
-                inferred_mol = filename.split("_")[0]
-
-                df["molecule"] = inferred_mol
-                print(
-                    f"  > Column 'molecule' not found. Inferred '{inferred_mol}' from filename."
-                )
-
-            all_dfs.append(df)
-            all_cols.update(df.columns)
         except FileNotFoundError:
             print(f"  WARNING: File not found, skipping: {path}")
-
-    if not all_dfs:
-        raise FileNotFoundError(
-            "No valid data files were found. Check `data.paths` in your config."
-        )
-
-    all_cols_list = sorted(list(all_cols))
-
-    if len(all_dfs) > 1:
-        print("Multiple data paths found. Combining datasets...")
-        processed_dfs = []
-        for df in all_dfs:
-            # Re-index to include all columns, fill missing with 0.0
-            df = df.reindex(columns=all_cols_list, fill_value=0.0)
-            processed_dfs.append(df)
-        combined_df = pd.concat(processed_dfs, ignore_index=True)
-        print(
-            f"Combined dataset created with {len(combined_df)} rows, {len(all_cols_list)} columns."
-        )
-    else:
-        combined_df = all_dfs[0]
-        print(f"Loaded single dataset with {len(combined_df)} rows.")
 
     # === 2. Pre-processing & Filtering ===
     target_col = data_config["target_col"]
@@ -193,25 +156,25 @@ def load_data(config):
     # Filter by isotopologues if specified
     filter_out_isos = data_config.get("filter_out_isos", []) or []
     if filter_out_isos:
-        initial_count = len(combined_df)
-        combined_df = combined_df[~combined_df["iso"].isin(filter_out_isos)]
-        dropped = initial_count - len(combined_df)
+        initial_count = len(df)
+        df = df[~df["iso"].isin(filter_out_isos)]
+        dropped = initial_count - len(df)
         if dropped > 0:
             print(f"Dropped {dropped} rows where iso in {filter_out_isos}")
 
     # Drop NaNs
     critical_cols = [target_col] + not_feature_cols_config
-    critical_cols = [col for col in critical_cols if col and col in combined_df.columns]
+    critical_cols = [col for col in critical_cols if col and col in df.columns]
 
     if critical_cols:
-        initial_count = len(combined_df)
-        combined_df = combined_df.dropna(subset=critical_cols)
-        if len(combined_df) < initial_count:
-            print(f"Dropped {initial_count - len(combined_df)} rows with NaNs.")
+        initial_count = len(df)
+        df = df.dropna(subset=critical_cols)
+        if len(df) < initial_count:
+            print(f"Dropped {initial_count - len(df)} rows with NaNs.")
 
     # === 3. Determine Feature Columns ===
     # This section implements the `not_feature_cols` logic
-    all_cols_in_df = set(combined_df.columns)
+    all_cols_in_df = set(df.columns)
     not_feature_cols_set = set(not_feature_cols_config)
     not_feature_cols_set.add(target_col)
 
@@ -230,32 +193,30 @@ def load_data(config):
     n_isos = 0
 
     # Handle Molecule Index
-    if mol_col in combined_df.columns:
+    if mol_col in df.columns:
         # Even if numeric, encoding required to ensure 0 to N-1 contiguous indices for Embeddings
         print(f"Encoding molecule column '{mol_col}'...")
-        combined_df["molecule_idx_encoded"] = LabelEncoder().fit_transform(
-            combined_df[mol_col].astype(str)
+        df["molecule_idx_encoded"] = LabelEncoder().fit_transform(
+            df[mol_col].astype(str)
         )
         data_config["molecule_idx_col"] = "molecule_idx_encoded"
-        n_molecules = combined_df["molecule_idx_encoded"].nunique()
+        n_molecules = df["molecule_idx_encoded"].nunique()
         print(f"Found {n_molecules} unique molecules.")
     else:
         # Fallback: if no molecule col, assume 1 molecule (idx 0)
-        combined_df["molecule_idx_encoded"] = 0
+        df["molecule_idx_encoded"] = 0
         data_config["molecule_idx_col"] = "molecule_idx_encoded"
         n_molecules = 1
 
     # Handle Iso Index
-    if iso_col in combined_df.columns:
+    if iso_col in df.columns:
         print(f"Encoding isotopologue column '{iso_col}' to 0..N indices...")
-        combined_df["iso_idx_encoded"] = LabelEncoder().fit_transform(
-            combined_df[iso_col].astype(str)
-        )
+        df["iso_idx_encoded"] = LabelEncoder().fit_transform(df[iso_col].astype(str))
         data_config["iso_idx_col"] = "iso_idx_encoded"
-        n_isos = combined_df["iso_idx_encoded"].nunique()
+        n_isos = df["iso_idx_encoded"].nunique()
         print(f"Found {n_isos} unique isotopologues.")
     else:
-        combined_df["iso_idx_encoded"] = 0
+        df["iso_idx_encoded"] = 0
         data_config["iso_idx_col"] = "iso_idx_encoded"
         n_isos = 1
 
@@ -275,11 +236,11 @@ def load_data(config):
     temp_size = val_size + test_size
     if temp_size > 0:
         train_df, temp_df = train_test_split(
-            combined_df, test_size=temp_size, random_state=random_state, shuffle=True
+            df, test_size=temp_size, random_state=random_state, shuffle=True
         )
     else:
-        train_df = combined_df.copy()
-        temp_df = pd.DataFrame(columns=combined_df.columns)
+        train_df = df.copy()
+        temp_df = pd.DataFrame(columns=df.columns)
 
     # Second split: Val vs. Test
     if val_size > 0 and test_size > 0:
@@ -292,13 +253,13 @@ def load_data(config):
         )
     elif val_size > 0:
         val_df = temp_df.copy()
-        test_df = pd.DataFrame(columns=combined_df.columns)
+        test_df = pd.DataFrame(columns=df.columns)
     elif test_size > 0:
         test_df = temp_df.copy()
-        val_df = pd.DataFrame(columns=combined_df.columns)
+        val_df = pd.DataFrame(columns=df.columns)
     else:
-        val_df = pd.DataFrame(columns=combined_df.columns)
-        test_df = pd.DataFrame(columns=combined_df.columns)
+        val_df = pd.DataFrame(columns=df.columns)
+        test_df = pd.DataFrame(columns=df.columns)
 
     print(f"Data split: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")
 
