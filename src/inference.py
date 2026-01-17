@@ -31,10 +31,6 @@ def run_inference_pipeline(
     if not inference_config.get("enabled", False):
         return
 
-    print("\n" + "=" * 60)
-    print("STEP 6: RUNNING INFERENCE")
-    print("=" * 60)
-
     inf_data_path = inference_config.get("data_path")
     if not inf_data_path or not os.path.exists(inf_data_path):
         print(f"Error: Inference data not found at: {inf_data_path}")
@@ -61,9 +57,28 @@ def run_inference_pipeline(
 
         if scaler:
             print("Applying feature scaling (using scaler fitted on training data)...")
-            model_input_df[feature_cols] = scaler.transform(
-                model_input_df[feature_cols]
-            )
+
+            # Use the features the scaler saw during fit()
+            if hasattr(scaler, "feature_names_in_"):
+                cols_to_scale = scaler.feature_names_in_
+                print(
+                    f"  Scaling features based on fitted names: {list(cols_to_scale)}"
+                )
+                model_input_df[cols_to_scale] = scaler.transform(
+                    model_input_df[cols_to_scale]
+                )
+            else:
+                # Fallback: Use config defined columns if scaler doesn't store names
+                scaled_cols = config["data"].get("scaled_cols", [])
+                if scaled_cols:
+                    print(f"  Scaling features based on config: {scaled_cols}")
+                    model_input_df[scaled_cols] = scaler.transform(
+                        model_input_df[scaled_cols]
+                    )
+                else:
+                    print(
+                        "  Warning: Scaler provided but no columns identified for scaling."
+                    )
 
         # 5. Handle Target Column
         # MoleculeDataset expects a target column to exist. If missing, fill with dummy values (0.0).
@@ -110,7 +125,7 @@ def run_inference_pipeline(
             inference_preds = np.concatenate(inference_preds).flatten()
 
             # Attach predictions to the ORIGINAL dataframe
-            inf_df["predicted_value"] = inference_preds
+            inf_df["predicted_E_IE"] = inference_preds
 
             # Determine Output Directory
             inf_out_dir = inference_config.get("output_dir")

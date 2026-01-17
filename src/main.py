@@ -225,11 +225,32 @@ def main(config_path: str):
         print(f"CV summary saved to {cv_summary_path}")
 
     # === 7. Inference ===
-    if config.get("inference", {}).get("enabled", False) and results["model"]:
+    if config.get("inference", {}).get("enabled", False):
         print("\n" + "=" * 60)
         print("STEP 6: RUNNING INFERENCE")
         print("=" * 60)
+        print("\n  Step 6a: Retrain on full dataset before inference...")
 
+        from .experiments import train_final_model
+
+        cv_results_df = results["cv_results_df"]
+        avg_epochs = int(cv_results_df["stopped_epoch"].mean())
+        if avg_epochs < 1:
+            avg_epochs = 1
+
+        final_train_df = pd.concat([train_df, val_df], ignore_index=True)
+
+        final_model = train_final_model(
+            config,
+            final_train_df,
+            feature_cols,
+            target_col,
+            device,
+            epochs=avg_epochs,
+        )
+        results["model"], scaler = final_model
+
+        print("\n  Step 6b: Running inference...")
         run_inference_pipeline(
             config=config,
             model=results["model"],

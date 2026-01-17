@@ -46,14 +46,25 @@ def train_final_model(
     """
     Trains a final model on the entire available dataset (Train + Val).
     """
-    print("\n" + "=" * 60)
-    print(f"REFIT: Training Final Model on Combined Data (n={len(full_train_df)})")
-    print(f"       Training for fixed {epochs} epochs (derived from CV average)")
-    print("=" * 60)
+    print(f"Training Final Model for fixed {epochs} epochs (derived from CV average)")
 
     # 1. Setup Data
     mol_col = config["data"].get("molecule_idx_col")
     iso_col = config["data"].get("iso_idx_col")
+
+    scaler = StandardScaler()
+    scaled_cols = config["data"].get("scaled_cols", []) or []
+    valid_scaled_cols = [col for col in scaled_cols if col in feature_cols]
+
+    if valid_scaled_cols:
+        full_train_df = full_train_df.copy()  # Avoid SettingWithCopy
+        full_train_df[valid_scaled_cols] = full_train_df[valid_scaled_cols].astype(
+            float
+        )
+        full_train_df.loc[:, valid_scaled_cols] = scaler.fit_transform(
+            full_train_df[valid_scaled_cols]
+        )
+        print(f"Final model: Scaled {len(valid_scaled_cols)} features.")
 
     train_ds = MoleculeDataset(
         full_train_df, feature_cols, target_col, mol_col, iso_col
@@ -136,7 +147,7 @@ def train_final_model(
             print(f"  Refit Epoch {epoch+1:3d}/{epochs} | Train Loss: {avg_loss:.6f}")
 
     print("Refit complete.")
-    return model
+    return model, scaler
 
 
 def run_single_train_test(
@@ -702,23 +713,6 @@ def run_experiment(
                 "test_predictions_df": cv_preds_df,
             }
         )
-
-        if config.get("inference", {}).get("enabled", False):
-            avg_epochs = int(cv_results_df["stopped_epoch"].mean())
-            if avg_epochs < 1:
-                avg_epochs = 1
-
-            final_train_df = pd.concat([train_df, val_df], ignore_index=True)
-
-            final_model = train_final_model(
-                config,
-                final_train_df,
-                feature_cols,
-                target_col,
-                device,
-                epochs=avg_epochs,
-            )
-            results["model"] = final_model
 
     elif exp_type == "multi_seed":
         # --- Run multiple 'single_run' experiments with different seeds ---
