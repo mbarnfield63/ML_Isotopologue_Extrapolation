@@ -143,7 +143,7 @@ def parse_duo_output(filename):
     return pd.DataFrame(duo_data)
 
 
-def load_marvel_data(filename):
+def load_marvel_data(filename, drop_unverified=False):
     """
     Parses MARVEL energy file using original logic.
     """
@@ -157,6 +157,10 @@ def load_marvel_data(filename):
         # Rename E to E_Ma for internal consistency
         marvel_data.rename(columns={"E": "E_Ma"}, inplace=True)
 
+        # Drop unverified levels if specified
+        if drop_unverified:
+            marvel_data = marvel_data[marvel_data["N"] > 1]
+
         # Keep only necessary columns
         return marvel_data[["v", "J", "E_Ma"]]
 
@@ -168,6 +172,12 @@ def load_marvel_data(filename):
 # --- Main Pipeline ---
 
 if __name__ == "__main__":
+    # Parse argument for dropping unverified MARVEL levels
+    arg_drop_unverified = False
+    if len(sys.argv) > 1 and sys.argv[1].lower() == "drop_unverified":
+        arg_drop_unverified = True
+    print(f"Dropping unverified MARVEL levels (N=1): {arg_drop_unverified}")
+
     # Ensure input directories exist
     if not os.path.exists(DUO_DIR):
         print(f"Error: Data directory not found at {DUO_DIR}")
@@ -210,7 +220,7 @@ if __name__ == "__main__":
         m_path = os.path.join(MARVEL_DIR, m_file)
 
         if os.path.exists(m_path):
-            df_marvel = load_marvel_data(m_path)
+            df_marvel = load_marvel_data(m_path, drop_unverified=arg_drop_unverified)
             if not df_marvel.empty:
                 df_marvel["match_key"] = df_marvel[MATCH_KEYS].apply(tuple, axis=1)
 
