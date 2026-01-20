@@ -2,13 +2,13 @@ run_name: "co_co2"
 output_dir: "outputs/"
 
 data:
-  paths: 
-    - "data/processed/CO2_minor_isos_ma.txt"
-    - "data/processed/CO_minor_isos_ma_FILTERED.txt" 
+  training: "data/processed/co_co2_training.csv"
   
   target_col: "Error_IE"
   molecule_col: "molecule" 
+  molecule_idx_col: "molecule_idx"
   iso_col: "iso"
+  iso_idx_col: "iso_idx"
   
   not_feature_cols:
     - "Error_IE"
@@ -27,8 +27,8 @@ data:
   scaled_cols:
     - "E_IE"
     - "E_Ca_iso"
-    - "E_Ca_main"
-    - "E_Ma_main"
+    - "E_Ca_parent"
+    - "E_Ma_parent"
     - "gtot"
     - "J"
 
@@ -45,7 +45,7 @@ weighting:
     # CO isos
     "27": 7.0
     "28": 1.0
-    "36": 2.0
+    "36": 1.0
     "37": 7.0
     "38": 1.0
 
@@ -60,7 +60,7 @@ model:
   name: "CO_CO2_Combined"
   params:
     shared_dim: 128
-    iso_head_dim: 64
+    iso_head_dim: 128
 
 training:
   epochs: 100
@@ -108,3 +108,8 @@ plotting:
   plot_residual_hist: true
   plot_residual_boxplots: true
   plot_iso_residuals: true
+
+inference:
+  enabled: true
+  data_path: "data/processed/co_inference.csv"
+  output_subdir: "data/inference/"

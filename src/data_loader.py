@@ -192,15 +192,22 @@ def load_data(config):
     n_molecules = 0
     n_isos = 0
 
+    # Dicts to hold mapping if needed later for inference
+    mol_map = {}
+    iso_map = {}
+
     # Handle Molecule Index
     if mol_col in df.columns:
         # Even if numeric, encoding required to ensure 0 to N-1 contiguous indices for Embeddings
         print(f"Encoding molecule column '{mol_col}'...")
-        df["molecule_idx_encoded"] = LabelEncoder().fit_transform(
-            df[mol_col].astype(str)
-        )
+        le_mol = LabelEncoder()
+        df["molecule_idx_encoded"] = le_mol.fit_transform(df[mol_col].astype(str))
+
+        # Create the map
+        mol_map = dict(zip(le_mol.classes_, le_mol.transform(le_mol.classes_)))
+
         data_config["molecule_idx_col"] = "molecule_idx_encoded"
-        n_molecules = df["molecule_idx_encoded"].nunique()
+        n_molecules = len(mol_map)
         print(f"Found {n_molecules} unique molecules.")
     else:
         # Fallback: if no molecule col, assume 1 molecule (idx 0)
@@ -211,9 +218,14 @@ def load_data(config):
     # Handle Iso Index
     if iso_col in df.columns:
         print(f"Encoding isotopologue column '{iso_col}' to 0..N indices...")
-        df["iso_idx_encoded"] = LabelEncoder().fit_transform(df[iso_col].astype(str))
+        le_iso = LabelEncoder()
+        df["iso_idx_encoded"] = le_iso.fit_transform(df[iso_col].astype(str))
+
+        # Create the map
+        iso_map = dict(zip(le_iso.classes_, le_iso.transform(le_iso.classes_)))
+
         data_config["iso_idx_col"] = "iso_idx_encoded"
-        n_isos = df["iso_idx_encoded"].nunique()
+        n_isos = len(iso_map)
         print(f"Found {n_isos} unique isotopologues.")
     else:
         df["iso_idx_encoded"] = 0
@@ -325,4 +337,6 @@ def load_data(config):
         n_molecules,
         n_isos,
         train_sampler,
+        mol_map,
+        iso_map,
     )

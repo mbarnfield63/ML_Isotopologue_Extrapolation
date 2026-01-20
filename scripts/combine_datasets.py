@@ -3,9 +3,10 @@ import pandas as pd
 import os
 
 DIR = "data/processed"
-INPUTS = ["CO_minor_isos_ma.txt", "CO2_minor_isos_ma.txt"]
+INPUTS = ["CO_minor_isos_training.csv", "CO2_minor_isos_ma.txt"]
 OUTPUT = "co_co2_training.csv"
-E_CUTOFF = None  # cm^-1
+Error_CUTOFF = 1  # cm^-1
+E_CUTOFF = 40000  # cm^-1
 REMOVE_MOLECULES = []  # e.g., ["CO2"]
 
 
@@ -43,6 +44,25 @@ def combine_datasets(input_files, output_file):
 
     all_cols_list = sorted({col for df in all_dfs for col in df.columns})
 
+    # Replace any column names ending with "main" -> "parent"
+    for i, df in enumerate(all_dfs):
+        rename_map = {}
+        for col in df.columns:
+            if col.endswith("main"):
+                new_col = col[:-4] + "parent"
+                if new_col in df.columns:
+                    print(
+                        f"  > Skipping rename of '{col}' -> '{new_col}' (target exists)."
+                    )
+                else:
+                    rename_map[col] = new_col
+        if rename_map:
+            df.rename(columns=rename_map, inplace=True)
+            print(f"  > Renamed columns in input {i}: {rename_map}")
+
+    # Recompute all columns list after renaming
+    all_cols_list = sorted({col for df in all_dfs for col in df.columns})
+
     if len(all_dfs) > 1:
         print("Combining datasets...")
         processed_dfs = []
@@ -60,13 +80,22 @@ def combine_datasets(input_files, output_file):
         combined_df = all_dfs[0].reindex(columns=all_cols_list, fill_value=0.0)
         print(f"Loaded single dataset with {len(combined_df)} rows.")
 
-    # Remove lines where E_Ma_iso > 40000
+    # Remove lines where Error_IE > cutoff
+    if Error_CUTOFF is not None and "Error_IE" in combined_df.columns:
+        initial_count = len(combined_df)
+        combined_df = combined_df[combined_df["Error_IE"].abs() <= Error_CUTOFF]
+        filtered_count = len(combined_df)
+        print(
+            f"Filtered out {initial_count - filtered_count} rows where Error_IE > {Error_CUTOFF} cm-1."
+        )
+
+    # Remove lines where E_Ma_iso > cutoff
     if E_CUTOFF is not None and "E_Ma_parent" in combined_df.columns:
         initial_count = len(combined_df)
         combined_df = combined_df[combined_df["E_Ma_parent"] <= E_CUTOFF]
         filtered_count = len(combined_df)
         print(
-            f"Filtered out {initial_count - filtered_count} rows where E_Ma_parent > {E_CUTOFF}."
+            f"Filtered out {initial_count - filtered_count} rows where E_Ma_parent > {E_CUTOFF} cm-1."
         )
 
     # Remove specified molecules

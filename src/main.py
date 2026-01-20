@@ -57,6 +57,8 @@ def main(config_path: str):
         n_molecules,
         n_isos,
         train_sampler,
+        mol_map,
+        iso_map,
     ) = load_data(config)
     print(f"Loaded data with {len(feature_cols)} features.")
     print(f"Found {n_molecules} molecules and {n_isos} isotopologues.")
@@ -259,6 +261,8 @@ def main(config_path: str):
             target_col=target_col,
             device=device,
             base_output_dir=output_dir,
+            mol_map=mol_map,
+            iso_map=iso_map,
         )
 
     end_time = time.time()

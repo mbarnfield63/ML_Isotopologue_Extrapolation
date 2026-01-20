@@ -16,6 +16,8 @@ def run_inference_pipeline(
     target_col: str,
     device: torch.device,
     base_output_dir: str,
+    mol_map: dict,
+    iso_map: dict,
 ):
     """
     Orchestrates the full inference pipeline:
@@ -80,6 +82,62 @@ def run_inference_pipeline(
                         "  Warning: Scaler provided but no columns identified for scaling."
                     )
 
+        # Apply Molecule/Iso Mappings
+        print("Mapping molecule and isotopologue indices...")
+
+        # Get raw column names from config (e.g., "molecule", "iso")
+        raw_mol_col = config["data"].get("molecule_col", "molecule")
+        raw_iso_col = config["data"].get("iso_col", "iso")
+
+        # Get target encoded column names (e.g., "molecule_idx_encoded")
+        target_mol_idx = config["data"].get("molecule_idx_col", "molecule_idx_encoded")
+        target_iso_idx = config["data"].get("iso_idx_col", "iso_idx_encoded")
+
+        # Map Molecules
+        if mol_map and raw_mol_col in model_input_df.columns:
+            # map the strings to integers using the dictionary
+            model_input_df[target_mol_idx] = (
+                model_input_df[raw_mol_col].astype(str).map(mol_map)
+            )
+
+            # Check for unknown molecules (NaNs after mapping)
+            if model_input_df[target_mol_idx].isnull().any():
+                print(
+                    f"Warning: Found molecules in inference data not present in training! Filling with 0."
+                )
+                model_input_df[target_mol_idx] = (
+                    model_input_df[target_mol_idx].fillna(0).astype(int)
+                )
+            else:
+                model_input_df[target_mol_idx] = model_input_df[target_mol_idx].astype(
+                    int
+                )
+
+        elif target_mol_idx not in model_input_df.columns:
+            # Fallback if no map provided
+            model_input_df[target_mol_idx] = 0
+
+        # Map Isotopologues
+        if iso_map and raw_iso_col in model_input_df.columns:
+            model_input_df[target_iso_idx] = (
+                model_input_df[raw_iso_col].astype(str).map(iso_map)
+            )
+
+            if model_input_df[target_iso_idx].isnull().any():
+                print(
+                    f"Warning: Found isotopologues in inference data not present in training! Filling with 0."
+                )
+                model_input_df[target_iso_idx] = (
+                    model_input_df[target_iso_idx].fillna(0).astype(int)
+                )
+            else:
+                model_input_df[target_iso_idx] = model_input_df[target_iso_idx].astype(
+                    int
+                )
+
+        elif target_iso_idx not in model_input_df.columns:
+            model_input_df[target_iso_idx] = 0
+
         # 5. Handle Target Column
         # MoleculeDataset expects a target column to exist. If missing, fill with dummy values (0.0).
         if target_col not in model_input_df.columns:
@@ -125,7 +183,7 @@ def run_inference_pipeline(
             inference_preds = np.concatenate(inference_preds).flatten()
 
             # Attach predictions to the ORIGINAL dataframe
-            inf_df["predicted_E_IE"] = inference_preds
+            inf_df["predicted_IE_correction"] = inference_preds
 
             # Determine Output Directory
             inf_out_dir = inference_config.get("output_dir")
