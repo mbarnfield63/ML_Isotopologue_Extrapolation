@@ -368,3 +368,17 @@ def get_feature_importance(
             print(f"  WARNING: Failed to plot feature importance. Error: {e}")
 
     return df_imp
+
+
+def summarize_inference_results(df, output_dir):
+    summary_dir = os.path.join(output_dir, "summary")
+    os.makedirs(summary_dir, exist_ok=True)
+
+    summary_stats = df.groupby("iso")["predicted_IE_correction"].agg(
+        ["mean", "std", "min", "max", "count"]
+    )
+    summary_stats.to_csv(os.path.join(summary_dir, "inference_summary_statistics.csv"))
+    print(
+        "Summary statistics saved to:",
+        os.path.join(summary_dir, "inference_summary_statistics.csv"),
+    )

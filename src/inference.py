@@ -200,6 +200,15 @@ def run_inference_pipeline(
 
             inf_df.to_csv(out_path, index=False)
             print(f"Success! Inference predictions saved to: {out_path}")
+
+            if config.get("inference", {}).get("analysis", False):
+                print("Running inference analysis...")
+                from plotting import plot_inference_results
+                from analysis import summarize_inference_results
+
+                plot_inference_results(inf_df, inf_out_dir)
+                summarize_inference_results(inf_df, inf_out_dir)
+
         else:
             print("Warning: No predictions were generated.")
 

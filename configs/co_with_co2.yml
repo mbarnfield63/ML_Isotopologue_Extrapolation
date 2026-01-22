@@ -111,5 +111,6 @@ plotting:
 
 inference:
   enabled: true
+  analysis: true
   data_path: "data/processed/co_inference.csv"
   output_subdir: "data/inference/"

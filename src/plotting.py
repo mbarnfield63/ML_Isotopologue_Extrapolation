@@ -602,3 +602,32 @@ def plot_all_results(
                 print(f"  WARNING: Failed to plot group residuals. Error: {e}")
 
     print("Plotting complete.")
+
+
+def plot_inference_results(df, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    plots_dir = os.path.join(output_dir, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+
+    x_col = "E_Ma_parent"
+    y_col = "predicted_IE_correction"
+
+    if x_col not in df.columns or y_col not in df.columns:
+        raise KeyError(f"DataFrame must contain columns '{x_col}' and '{y_col}'")
+
+    for molecule in df["molecule"].unique():
+        sub_df = df[df["molecule"] == molecule]
+        for iso in sub_df["iso"].unique():
+            sub = sub_df[sub_df["iso"] == iso]
+            plt.figure(figsize=(6, 4))
+            plt.scatter(sub[x_col], sub[y_col], s=10, alpha=0.7)
+            plt.xlabel("Parent Marvel Energy Level / cm⁻¹")
+            plt.ylabel("Predicted IE Correction")
+            plt.title(f"Molecule: {molecule} | ISO: {iso} | No. Samples: {len(sub)}")
+            plt.grid(True, linestyle=":", alpha=0.5)
+            safe_iso = str(iso).replace(" ", "_").replace("/", "_")
+            plt.tight_layout()
+            plt.savefig(
+                os.path.join(plots_dir, f"{safe_iso}_error_vs_E_Ma_parent.png"), dpi=150
+            )
+            plt.close()
