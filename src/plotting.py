@@ -604,9 +604,9 @@ def plot_all_results(
     print("Plotting complete.")
 
 
-def plot_inference_results(df, output_dir):
+def plot_inference_results_individual(df, output_dir):
     os.makedirs(output_dir, exist_ok=True)
-    plots_dir = os.path.join(output_dir, "plots")
+    plots_dir = os.path.join(output_dir, "Plots")
     os.makedirs(plots_dir, exist_ok=True)
 
     x_col = "E_Ma_parent"
@@ -631,3 +631,98 @@ def plot_inference_results(df, output_dir):
                 os.path.join(plots_dir, f"{safe_iso}_error_vs_E_Ma_parent.png"), dpi=150
             )
             plt.close()
+
+
+def plot_inference_results_all(df, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    plots_dir = os.path.join(output_dir, "Plots")
+    os.makedirs(plots_dir, exist_ok=True)
+
+    x_col = "E_Ma_parent"
+    y_col = "predicted_IE_correction"
+
+    if x_col not in df.columns or y_col not in df.columns:
+        raise KeyError(f"DataFrame must contain columns '{x_col}' and '{y_col}'")
+
+    n_col = 3
+
+    for molecule in df["molecule"].unique():
+        pred_df = df[df["molecule"] == molecule]
+        all_isos = sorted(pred_df["iso"].unique())
+        n_isos = len(all_isos)
+        n_rows = (n_isos + n_col - 1) // n_col
+
+        pred_df["E_ML"] = pred_df["E_IE"] - pred_df["predicted_IE_correction"]
+
+        energy_min = 0
+        energy_max = pred_df["E_ML"].max() * 1.05
+
+        fig, axes = plt.subplots(
+            n_rows, n_col, sharex=True, sharey=True, figsize=(5 * n_col, 4 * n_rows)
+        )
+        if n_rows == 1:
+            axes = axes.reshape(1, -1)
+        elif n_col == 1:
+            axes = axes.reshape(-1, 1)
+
+        for idx, iso in enumerate(all_isos):
+            row = idx // n_col
+            col = idx % n_col
+            ax = axes[row, col]
+
+            iso_mask = pred_df["iso"] == iso
+            if iso_mask.sum() == 0:
+                continue
+
+            sub = pred_df[iso_mask]
+            sns.scatterplot(
+                data=sub,
+                x="J",
+                y="E_ML",
+                hue="v",
+                palette="viridis",
+                s=25,
+                alpha=0.8,
+                ax=ax,
+            )
+
+            ax.set_title(f"Iso: {iso} | No. Levels: {iso_mask.sum()}", fontsize=16)
+
+            ax.legend_.remove()
+
+            ax.set_ylim(energy_min, energy_max)
+            # if row == n_rows - 1:
+            ax.set_xlabel(r"J")
+            if col == 0:
+                ax.set_ylabel(r"Energy Level / cm$\mathregular{^{-1}}$")
+            ax.grid(True, alpha=0.3)
+
+        # Add legend to the last row, last column axis (or first empty one)
+        for idx in range(n_isos, n_rows * n_col):
+            row = idx // n_col
+            col = idx % n_col
+            axes[row, col].axis("off")
+
+        handles, labels = axes[0, 0].get_legend_handles_labels()
+        # Put legend & overall reduction in the last axis
+        legend_ax = axes[-1, -1] if n_col > 1 else axes[-1, 0]
+        legend_ax.legend(
+            handles,
+            labels,
+            title="v",
+            title_fontsize=24,
+            loc="center",
+            fontsize=20,
+            handlelength=2,
+            handletextpad=0.75,
+            markerscale=3,
+        )
+
+        plt.tight_layout()
+        plt.subplots_adjust(wspace=0.0)
+        plt.savefig(
+            os.path.join(output_dir, f"all_{molecule}_predictions.png"),
+            dpi=300,
+            bbox_inches="tight",
+        )
+        plt.close()

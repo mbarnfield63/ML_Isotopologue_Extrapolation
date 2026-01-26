@@ -203,10 +203,15 @@ def run_inference_pipeline(
 
             if config.get("inference", {}).get("analysis", False):
                 print("Running inference analysis...")
-                from plotting import plot_inference_results
+                from plotting import (
+                    plot_inference_results_individual,
+                    plot_inference_results_all,
+                )
                 from analysis import summarize_inference_results
 
-                plot_inference_results(inf_df, inf_out_dir)
+                plot_inference_results_individual(inf_df, inf_out_dir)
+                plot_inference_results_all(inf_df, inf_out_dir)
+
                 summarize_inference_results(inf_df, inf_out_dir)
 
         else:
