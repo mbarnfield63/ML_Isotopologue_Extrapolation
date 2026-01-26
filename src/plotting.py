@@ -129,7 +129,7 @@ def plot_iso_residuals_all(
     overall_pct_improvement,
     group_by_col,
     energy_col,
-    n_col=4,
+    n_col=3,
     output_dir=None,
 ):
     """
@@ -192,7 +192,7 @@ def plot_iso_residuals_all(
         ax.text(
             0.05,
             0.05,
-            f"Group: {iso}\nReduction: {mean_reduction:.2f}%",
+            f"Iso: {iso}\nReduction: {mean_reduction:.2f}%",
             transform=ax.transAxes,
             fontsize=16,
             va="bottom",
@@ -200,10 +200,10 @@ def plot_iso_residuals_all(
 
         ax.set_xlim(energy_min, energy_max)
         if row == n_rows - 1:
-            ax.set_xlabel(r"True Energy (cm$\mathregular{^{-1}}$)")
+            ax.set_xlabel(r"MARVEL Energy Level / cm$\mathregular{^{-1}}$")
         ax.set_ylim(-0.15, 0.15)
         if col == 0:
-            ax.set_ylabel(r"Residual ($\it{Obs-Calc}$)")
+            ax.set_ylabel(r"Residual ($\it{Obs-Calc}$) / cm$\mathregular{^{-1}}$")
         ax.grid(True, alpha=0.3)
 
     # Add legend to the last row, last column axis (or first empty one)
@@ -274,11 +274,11 @@ def plot_metrics_bars(iso_results_df, output_dir, figsize=(12, 5)):
             hatch="\\" if i == 0 else None,
         )
 
-    axes[0].set_xlabel("Isotopologue Number")
+    axes[0].set_xlabel("Isotopologue Code")
     axes[0].set_xticks(x + width * (len(maes) - 1) / 2)
     axes[0].set_xticklabels(isotopologues, rotation=45, ha="center")
     axes[0].set_ylabel("MAE")
-    axes[0].set_ylim(0, iso_results_df[maes].max().max() * 1.15)
+    axes[0].set_ylim(0, iso_results_df[maes].max().max() * 1.2)
     axes[0].legend(loc="upper left")
     axes[0].grid(axis="y")
     axes[0].tick_params(axis="x", which="both", bottom=False, top=False)
@@ -296,11 +296,11 @@ def plot_metrics_bars(iso_results_df, output_dir, figsize=(12, 5)):
             hatch="\\" if i == 0 else None,
         )
 
-    axes[1].set_xlabel("Group")
+    axes[1].set_xlabel("Isotopologue Code")
     axes[1].set_xticks(x + width * (len(rmses) - 1) / 2)
     axes[1].set_xticklabels(isotopologues, rotation=45, ha="center")
     axes[1].set_ylabel("RMSE")
-    axes[1].set_ylim(0, iso_results_df[rmses].max().max() * 1.15)
+    axes[1].set_ylim(0, iso_results_df[rmses].max().max() * 1.2)
     axes[1].legend(loc="upper left")
     axes[1].grid(axis="y")
     axes[1].tick_params(axis="x", which="both", bottom=False, top=False)
@@ -421,7 +421,7 @@ def plot_hist_error_energy(pred_df, output_dir=None):
         alpha=0.7,
     )
     axes[0].axvline(0, color=COLORS["line"], linestyle="--")
-    axes[0].set_xlabel(r"Residual ($\it{Obs-Calc}$)")
+    axes[0].set_xlabel(r"Residual ($\it{Obs-Calc}$) / cm$\mathregular{^{-1}}$")
     axes[0].set_ylabel("Count")
     axes[0].text(
         0.05,
@@ -444,7 +444,7 @@ def plot_hist_error_energy(pred_df, output_dir=None):
         alpha=0.7,
     )
     axes[1].axvline(0, color=COLORS["line"], linestyle="--")
-    axes[1].set_xlabel(r"Residual ($\it{Obs-Calc}$)")
+    axes[1].set_xlabel(r"Residual ($\it{Obs-Calc}$) / cm$\mathregular{^{-1}}$")
     axes[1].text(
         0.05,
         0.95,
@@ -497,8 +497,6 @@ def plot_feature_importance(df, output_dir):
 
 
 # === Main Plotting Function ===
-
-
 def plot_all_results(
     results: dict,
     pred_df: pd.DataFrame,

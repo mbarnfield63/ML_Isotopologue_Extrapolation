@@ -163,7 +163,7 @@ def analyze_grouped_errors(
         if mask.sum() == 0:
             continue
 
-        group_data = {"Group": group, "Count": mask.sum()}
+        group_data = {"Group": group, "Total Samples": mask.sum()}
 
         if has_pp_cols:
             # Report on detailed "IE" workflow errors
@@ -179,6 +179,9 @@ def analyze_grouped_errors(
 
             group_data.update(
                 {
+                    "No. Samples Improved": (
+                        pred_df.loc[mask, "Error_reduction"] > 0
+                    ).sum(),
                     "Original MAE": mean_orig_mae,
                     "ML Corrected MAE": mean_corr_mae,
                     "Original RMSE": np.sqrt(
@@ -213,7 +216,8 @@ def analyze_grouped_errors(
     if has_pp_cols:
         cols_order = [
             "Group",
-            "Count",
+            "Total Samples",
+            "No. Samples Improved",
             "Original MAE",
             "ML Corrected MAE",
             "Original RMSE",
@@ -222,9 +226,16 @@ def analyze_grouped_errors(
             "Mean Pct Reduction",
         ]
     elif has_simple_error_cols:
-        cols_order = ["Group", "Count", "MAE", "RMSE", "Mean Error"]
+        cols_order = [
+            "Group",
+            "Total Samples",
+            "No. Samples Improved",
+            "MAE",
+            "RMSE",
+            "Mean Error",
+        ]
     else:
-        cols_order = ["Group", "Count"]  # Fallback
+        cols_order = ["Group", "Total Samples", "No. Samples Improved"]  # Fallback
 
     # Filter for columns that actually exist
     final_cols = [col for col in cols_order if col in df.columns]
@@ -371,7 +382,7 @@ def get_feature_importance(
 
 
 def summarize_inference_results(df, output_dir):
-    summary_dir = os.path.join(output_dir, "summary")
+    summary_dir = os.path.join(output_dir, "Summary")
     os.makedirs(summary_dir, exist_ok=True)
 
     summary_stats = df.groupby("iso")["predicted_IE_correction"].agg(
