@@ -673,12 +673,16 @@ def plot_inference_results_all(df, output_dir):
                 continue
 
             sub = pred_df[iso_mask]
+
+            # Ensure 'v' exists for hue, otherwise ignore hue
+            hue_param = "v" if "v" in sub.columns else None
+
             sns.scatterplot(
                 data=sub,
                 x="J",
                 y="E_ML",
-                hue="v",
-                palette="viridis",
+                hue=hue_param,
+                palette="viridis" if hue_param else None,
                 s=25,
                 alpha=0.8,
                 ax=ax,
@@ -686,10 +690,11 @@ def plot_inference_results_all(df, output_dir):
 
             ax.set_title(f"Iso: {iso} | No. Levels: {iso_mask.sum()}", fontsize=16)
 
-            ax.legend_.remove()
+            # Remove legend for individual plots
+            if ax.legend_:
+                ax.legend_.remove()
 
             ax.set_ylim(energy_min, energy_max)
-            # if row == n_rows - 1:
             ax.set_xlabel(r"J")
             if col == 0:
                 ax.set_ylabel(r"Energy Level / cm$\mathregular{^{-1}}$")
@@ -702,19 +707,20 @@ def plot_inference_results_all(df, output_dir):
             axes[row, col].axis("off")
 
         handles, labels = axes[0, 0].get_legend_handles_labels()
-        # Put legend & overall reduction in the last axis
-        legend_ax = axes[-1, -1] if n_col > 1 else axes[-1, 0]
-        legend_ax.legend(
-            handles,
-            labels,
-            title="v",
-            title_fontsize=24,
-            loc="center",
-            fontsize=20,
-            handlelength=2,
-            handletextpad=0.75,
-            markerscale=3,
-        )
+
+        if handles:
+            legend_ax = axes[-1, -1] if n_col > 1 else axes[-1, 0]
+            legend_ax.legend(
+                handles,
+                labels,
+                title="v" if "v" in pred_df.columns else "Legend",
+                title_fontsize=24,
+                loc="center",
+                fontsize=20,
+                handlelength=2,
+                handletextpad=0.75,
+                markerscale=3,
+            )
 
         plt.tight_layout()
         plt.subplots_adjust(wspace=0.0)
