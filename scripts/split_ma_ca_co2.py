@@ -91,11 +91,11 @@ def split_raw_file(file_path, output_dir):
 
         # Define Output Paths
         # Note: Using sep='\t' to match the preprocessing script expectations
-        ma_path = os.path.join(output_dir, f"CO2_{iso}_ma.txt")
-        ca_path = os.path.join(output_dir, f"CO2_{iso}_ca.txt")
+        ma_path = os.path.join(output_dir, f"CO2_{iso}_ma.csv")
+        ca_path = os.path.join(output_dir, f"CO2_{iso}_ca.csv")
 
-        marvel_hitran.to_csv(ma_path, index=False, sep="\t")
-        calculated.to_csv(ca_path, index=False, sep="\t")
+        marvel_hitran.to_csv(ma_path, index=False, sep=",")
+        calculated.to_csv(ca_path, index=False, sep=",")
 
         print(f"Saved: CO2_{iso} to {output_dir}")
 
