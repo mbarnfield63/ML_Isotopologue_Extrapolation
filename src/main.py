@@ -235,10 +235,14 @@ def main(config_path: str):
 
         from .experiments import train_final_model
 
-        cv_results_df = results["cv_results_df"]
-        avg_epochs = int(cv_results_df["stopped_epoch"].mean())
-        if avg_epochs < 1:
-            avg_epochs = 1
+        # For CV experiments find average epochs from earlier runs
+        if config.get("experiment", {}).get("type") == "cv":
+            cv_results_df = results["cv_results_df"]
+            inf_epochs = int(cv_results_df["stopped_epoch"].mean())
+            if inf_epochs < 1:
+                inf_epochs = 1
+        else:
+            inf_epochs = config.get("training", {}).get("epochs", 100)
 
         final_train_df = pd.concat([train_df, val_df], ignore_index=True)
 
@@ -248,7 +252,7 @@ def main(config_path: str):
             feature_cols,
             target_col,
             device,
-            epochs=avg_epochs,
+            epochs=inf_epochs,
         )
         results["model"], scaler = final_model
 
