@@ -1,8 +1,11 @@
-import os
-import sys
+from concurrent.futures import ProcessPoolExecutor
+import functools
 import glob
-import pandas as pd
 import numpy as np
+import os
+import pandas as pd
+import sys
+
 
 # Import mass database
 try:
@@ -17,6 +20,8 @@ except ImportError:
 PARENT_ISO = 626
 INPUT_DIR = "data/co2"
 OUTPUT_DIR = "data/processed"
+NUM_WORKERS = 6
+INF_MAX = 15000  # cm^-1 (max inference energy)
 
 
 # --- Feature Engineering Functions ---
@@ -102,16 +107,10 @@ def prepare_atomic_features(df, parent_mus):
 def generate_match_key(df):
     """
     Generates a tuple key for matching quantum states.
-    CO2 uses AFGL columns + J + e_f.
+    Using Trove columns + J + e_f + l2 from Herzberg.
     """
-    # Identify AFGL columns dynamically
-    afgl_cols = [col for col in df.columns if col.startswith("AFGL")]
-    key_cols = ["J"] + afgl_cols
-
-    # Check for symmetry columns
-    if "e_f" in df.columns:
-        key_cols.append("e_f")
-
+    # Matches "Trove" definition in analyze_assignments.py
+    key_cols = ["J", "e_f", "hzb_l2", "Trove_v1", "Trove_v2", "Trove_v3"]
     # Create tuple key
     return df[key_cols].apply(tuple, axis=1)
 
@@ -119,30 +118,107 @@ def generate_match_key(df):
 # --- Parsing Functions ---
 def load_file_pair(iso, input_dir):
     """
-    Loads _ma.txt (matched/MARVEL) and _ca.txt (calc only) for a given iso.
+    Loads _ma.csv (matched/MARVEL) and _ca.csv (calc only) for a given iso.
     """
-    ma_path = os.path.join(input_dir, f"CO2_{iso}_ma.txt")
-    ca_path = os.path.join(input_dir, f"CO2_{iso}_ca.txt")
+    ma_path = os.path.join(input_dir, f"CO2_{iso}_ma.csv")
+    ca_path = os.path.join(input_dir, f"CO2_{iso}_ca.csv")
 
     matched = pd.DataFrame()
     ca_only = pd.DataFrame()
 
     # Load Matched (Training Candidates)
     if os.path.exists(ma_path):
-        matched = pd.read_csv(ma_path, sep="\t")
+        matched = pd.read_csv(ma_path, sep=",")
         matched["iso"] = iso
         # Rename E to E_Ma for consistency with CO script
         if "E" in matched.columns:
             matched.rename(columns={"E": "E_Ma"}, inplace=True)
 
+        # Safety: Remove duplicate columns
+        matched = matched.loc[:, ~matched.columns.duplicated()]
+
     # Load Ca-Only (Inference Candidates)
     if os.path.exists(ca_path):
-        ca_only = pd.read_csv(ca_path, sep="\t")
+        ca_only = pd.read_csv(ca_path, sep=",")
         ca_only["iso"] = iso
+
+        # Rename E to E_Ca for inference data to match pipeline expectations
+        if "E" in ca_only.columns:
+            ca_only.rename(columns={"E": "E_Ca"}, inplace=True)
+
         # Ensure E_Ma is NaN for these
         ca_only["E_Ma"] = np.nan
 
+        # Safety: Remove duplicate columns
+        ca_only = ca_only.loc[:, ~ca_only.columns.duplicated()]
+
     return matched, ca_only
+
+
+# Parallelized functions
+def process_iso_files(iso, input_dir):
+    """
+    Worker function for Step 1.
+    Loads files and generates keys for a single isotopologue.
+    """
+    print(f"   Processing ISO {iso}...")
+    matched, ca_only = load_file_pair(iso, input_dir)
+
+    # Generate Match Keys immediately so we don't have to do it later
+    if not matched.empty:
+        matched["match_key"] = generate_match_key(matched)
+    if not ca_only.empty:
+        ca_only["match_key"] = generate_match_key(ca_only)
+
+    return iso, matched, ca_only
+
+
+def process_minor_iso_features(iso, matched_df, ca_only_df, lookup_ma, lookup_ca):
+    """
+    Worker function for Step 3.
+    Calculates features for a minor isotopologue using parent lookups.
+    """
+    train_result = None
+    inf_result = None
+
+    # --- A. Process Training Data ---
+    if not matched_df.empty:
+        df_train = matched_df.copy()
+        # Map Parent Info
+        df_train["E_Ma_parent"] = df_train["match_key"].map(lookup_ma)
+        df_train["E_Ca_parent"] = df_train["match_key"].map(lookup_ca)
+
+        # Rename and Clean
+        df_train.rename(columns={"E_Ca": "E_Ca_iso", "E_Ma": "E_Ma_iso"}, inplace=True)
+        df_train.dropna(subset=["E_Ma_parent", "E_Ca_parent"], inplace=True)
+
+        # Calculate IE
+        df_train["E_IE"] = (
+            df_train["E_Ca_iso"] + df_train["E_Ma_parent"] - df_train["E_Ca_parent"]
+        )
+        df_train["Error_IE"] = df_train["E_Ma_iso"] - df_train["E_IE"]
+
+        train_result = df_train
+
+    # --- B. Process Inference Data ---
+    if not ca_only_df.empty:
+        df_inf = ca_only_df.copy()
+        # Map Parent Info
+        df_inf["E_Ma_parent"] = df_inf["match_key"].map(lookup_ma)
+        df_inf["E_Ca_parent"] = df_inf["match_key"].map(lookup_ca)
+
+        # Rename and Clean
+        df_inf.rename(columns={"E_Ca": "E_Ca_iso", "E_Ma": "E_Ma_iso"}, inplace=True)
+        df_inf.dropna(subset=["E_Ma_parent", "E_Ca_parent"], inplace=True)
+
+        # Calculate IE
+        df_inf["E_IE"] = (
+            df_inf["E_Ca_iso"] + df_inf["E_Ma_parent"] - df_inf["E_Ca_parent"]
+        )
+
+        inf_result = df_inf
+
+    return train_result, inf_result
 
 
 # --- Main Pipeline ---
@@ -157,7 +233,7 @@ if __name__ == "__main__":
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # 1. Identify Isotopologues
-    all_files = glob.glob(os.path.join(INPUT_DIR, "CO2_*_*.txt"))
+    all_files = glob.glob(os.path.join(INPUT_DIR, "CO2_*_*.csv"))
 
     # Extract iso numbers safely
     isos = set()
@@ -166,10 +242,10 @@ if __name__ == "__main__":
             filename = os.path.basename(f)
             # Filter for expected file naming convention
             if filename.startswith("CO2_") and (
-                "_ma.txt" in filename or "_ca.txt" in filename
+                "_ma.csv" in filename or "_ca.csv" in filename
             ):
                 parts = filename.split("_")
-                # Format is usually CO2_{iso}_{type}.txt, so index 1 is iso
+                # Format is usually CO2_{iso}_{type}.csv, so index 1 is iso
                 iso_str = parts[1]
                 isos.add(int(iso_str))
         except (IndexError, ValueError):
@@ -178,19 +254,19 @@ if __name__ == "__main__":
     isos = sorted(list(isos))
     processed_data = {}  # iso -> {'matched': df, 'ca_only': df}
 
-    print(f"1. Parsing Files from {INPUT_DIR}...")
+    print(f"1. Parsing Files from {INPUT_DIR} using {NUM_WORKERS} workers...")
 
-    for iso in isos:
-        print(f"   Processing Isotopologue {iso}...")
-        matched, ca_only = load_file_pair(iso, INPUT_DIR)
+    processed_data = {}
 
-        # Generate Match Keys
-        if not matched.empty:
-            matched["match_key"] = generate_match_key(matched)
-        if not ca_only.empty:
-            ca_only["match_key"] = generate_match_key(ca_only)
+    # Use ProcessPoolExecutor to run load_and_key in parallel
+    with ProcessPoolExecutor(max_workers=NUM_WORKERS) as executor:
+        # Submit all tasks
+        futures = [executor.submit(process_iso_files, iso, INPUT_DIR) for iso in isos]
 
-        processed_data[iso] = {"matched": matched, "ca_only": ca_only}
+        # Collect results as they complete
+        for future in futures:
+            iso, matched, ca_only = future.result()
+            processed_data[iso] = {"matched": matched, "ca_only": ca_only}
 
     # 2. Process Parent Isotopologue
     if PARENT_ISO not in processed_data:
@@ -231,60 +307,44 @@ if __name__ == "__main__":
     final_inference_rows = []
 
     print("3. Generating Features and Final Tables for Minor Isotopologues...")
+    print(
+        f"   Processing {len(processed_data) - 1} minor isotopologues using {NUM_WORKERS} workers..."
+    )
 
-    for iso, data in processed_data.items():
-        if iso == PARENT_ISO:
-            continue
+    # Prepare list of isos to process (excluding parent)
+    minor_isos = [iso for iso in processed_data.keys() if iso != PARENT_ISO]
 
-        # --- A. Training Data (Minor Isos with MARVEL) ---
-        df_train = data["matched"].copy()
-
-        if not df_train.empty:
-            # Map Parent Info
-            df_train["E_Ma_main"] = df_train["match_key"].map(lookup_ma)
-            df_train["E_Ca_main"] = df_train["match_key"].map(lookup_ca)
-
-            # Rename
-            df_train.rename(
-                columns={"E_Ca": "E_Ca_iso", "E_Ma": "E_Ma_iso"}, inplace=True
+    with ProcessPoolExecutor(max_workers=NUM_WORKERS) as executor:
+        # Need to pass the lookup dicts to every worker.
+        # Note: If lookups are massive, this might use a lot of RAM.
+        futures = []
+        for iso in minor_isos:
+            data = processed_data[iso]
+            futures.append(
+                executor.submit(
+                    process_minor_iso_features,
+                    iso,
+                    data["matched"],
+                    data["ca_only"],
+                    lookup_ma,
+                    lookup_ca,
+                )
             )
 
-            # Filter: Must have parent info to calculate IE
-            df_train.dropna(subset=["E_Ma_main", "E_Ca_main"], inplace=True)
-            df_train["E_IE"] = (
-                df_train["E_Ca_iso"] + df_train["E_Ma_main"] - df_train["E_Ca_main"]
-            )
-            df_train["Error_IE"] = df_train["E_Ma_iso"] - df_train["E_IE"]
-
-            final_training_rows.append(df_train)
-
-        # --- B. Inference Data (Calc Only) ---
-        df_inf = data["ca_only"].copy()
-
-        if not df_inf.empty:
-            # Map Parent Info
-            df_inf["E_Ma_main"] = df_inf["match_key"].map(lookup_ma)
-            df_inf["E_Ca_main"] = df_inf["match_key"].map(lookup_ca)
-
-            # Filter: Must have parent info to predict accurately
-            df_inf.dropna(subset=["E_Ma_main", "E_Ca_main"], inplace=True)
-
-            # Rename
-            df_inf.rename(
-                columns={"E_Ca": "E_Ca_iso", "E_Ma": "E_Ma_iso"}, inplace=True
-            )
-
-            df_inf["E_IE"] = (
-                df_inf["E_Ca_iso"] + df_inf["E_Ma_main"] - df_inf["E_Ca_main"]
-            )
-
-            final_inference_rows.append(df_inf)
+        for future in futures:
+            train_df, inf_df = future.result()
+            if train_df is not None:
+                final_training_rows.append(train_df)
+            if inf_df is not None:
+                final_inference_rows.append(inf_df)
 
     # 4. Concatenate and Cleanup
     # -- Process Training Set --
     if final_training_rows:
         df_final_train = pd.concat(final_training_rows, ignore_index=True)
         df_final_train = prepare_atomic_features(df_final_train, parent_mus)
+
+        df_final_train["molecule"] = "CO2"
 
         # Cleanup columns
         drops = ["match_key", "ID", "unc", "??", "Source"]
@@ -306,6 +366,11 @@ if __name__ == "__main__":
     if final_inference_rows:
         df_final_inf = pd.concat(final_inference_rows, ignore_index=True)
         df_final_inf = prepare_atomic_features(df_final_inf, parent_mus)
+
+        df_final_inf["molecule"] = "CO2"
+
+        # Filter by max inference energy
+        df_final_inf = df_final_inf[df_final_inf["E_Ma_parent"] <= INF_MAX]
 
         # Cleanup columns
         drops = ["match_key", "ID", "unc", "??", "Source"]
