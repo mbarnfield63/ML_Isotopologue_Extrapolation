@@ -589,12 +589,17 @@ def plot_all_results(
             )
         else:
             try:
+                if "n_cols" in plot_config:
+                    n_cols = plot_config["n_cols"]
+                else:
+                    n_cols = 3
                 plot_iso_residuals_all(
                     pred_df,
                     overall_metrics["overall_pct_improvement"],
                     group_by_col,
                     energy_col,
                     output_dir=output_dir,
+                    n_col=n_cols,
                 )
             except Exception as e:
                 print(f"  WARNING: Failed to plot group residuals. Error: {e}")

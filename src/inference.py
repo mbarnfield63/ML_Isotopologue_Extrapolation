@@ -45,6 +45,14 @@ def run_inference_pipeline(
         # 2. Load Data
         inf_df = pd.read_csv(inf_data_path)
 
+        # Apply any filtering specified in config
+        if inference_config.get("filter_out_isos", []) != []:
+            filter_isos = inference_config.get("filter_out_isos")
+            inf_df = inf_df[
+                ~inf_df[config["data"].get("iso_col", "iso")].isin(filter_isos)
+            ]
+            print(f"After filtering, {len(inf_df)} samples remain for inference.")
+
         # 3. Validate Features
         # Ensure all columns the model was trained on are present in the new file
         missing_cols = [c for c in feature_cols if c not in inf_df.columns]

@@ -2,29 +2,31 @@ run_name: "co2_basic"
 output_dir: "outputs/" # This will be created by the main script
 
 data:
-  # List of CSVs to load. If >1, they will be auto-combined.
-  paths: 
-    - "data/processed/CO2_minor_isos_ma.txt"
+  training: "data/processed/CO2_minor_isos_training.csv"
   
   target_col: "Error_IE"
+  iso_col: "iso"
+  iso_idx_col: "iso_idx"
   
-  # All columns to EXCLUDE from features
   not_feature_cols:
-    - "Error_IE"        # Target
-    - "E_Ma_iso"        # True value for post-analysis
-    - "iso"             # Isotopologue identifier
-    - "ID"              # Other identifiers
+    - "Error_IE"
+    - "E_Ma_iso"
+    - "E_IE_original"
+    - "iso"
+    - "molecule"
+    - "molecule_idx" 
+    - "iso_idx"      
+    - "ID"
     - "unc"
     - "??"
     - "Source"
     - "match_key"
 
-  # All columns that need scaling
   scaled_cols:
     - "E_IE"
     - "E_Ca_iso"
-    - "E_Ca_main"
-    - "E_Ma_main"
+    - "E_Ca_parent"
+    - "E_Ma_parent"
     - "gtot"
     - "J"
 
@@ -44,8 +46,8 @@ model:
     dropout: 0.3
 
 training:
-  epochs: 100
-  batch_size: 512
+  epochs: 200
+  batch_size: 128
   learning_rate: 1e-3
   init_bias_to_mean: True
   loss_function: "SmoothL1Loss"  # Options: 'MSELoss', 'L1Loss', 'SmoothL1Loss'
@@ -75,6 +77,7 @@ plotting:
   enabled: true
   group_by_col: "iso" 
   true_energy_col: "E_Ma_iso"
+  n_cols: 4
   
   # Control which plots to generate
   plot_loss: true
@@ -83,3 +86,10 @@ plotting:
   plot_residual_hist: true
   plot_residual_boxplots: true
   plot_iso_residuals: true
+
+inference:
+  enabled: true
+  analysis: true
+  filter_out_isos: [636]
+  data_path: "data/processed/co2_minor_isos_inference.csv"
+  output_subdir: "data/inference/"

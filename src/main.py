@@ -155,6 +155,15 @@ def main(config_path: str):
             print("\nGrouped Error Analysis Summary:")
             if iso_results_df is not None:
                 print(iso_results_df)
+            print(
+                "  Improved samples: ",
+                (
+                    iso_results_df["No. Samples Improved"].sum()
+                    / iso_results_df["Total Samples"].sum()
+                )
+                * 100,
+                " %",
+            )
         else:
             print("Skipping grouped error analysis (not enabled in config).")
 
