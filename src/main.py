@@ -263,7 +263,8 @@ def main(config_path: str):
             device,
             epochs=inf_epochs,
         )
-        results["model"], scaler = final_model
+        # Use the final model for inference, original scaler should still be valid
+        results["model"], _ = final_model
 
         print("\n  Step 6b: Running inference...")
         run_inference_pipeline(
