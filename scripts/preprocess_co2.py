@@ -21,7 +21,7 @@ PARENT_ISO = 626
 INPUT_DIR = "data/co2"
 OUTPUT_DIR = "data/processed"
 NUM_WORKERS = 6
-INF_MAX = 15000  # cm^-1 (max inference energy)
+INF_MAX = 12500  # cm^-1 (max inference energy)
 
 
 # --- Feature Engineering Functions ---
@@ -370,7 +370,7 @@ if __name__ == "__main__":
         df_final_inf["molecule"] = "CO2"
 
         # Filter by max inference energy
-        df_final_inf = df_final_inf[df_final_inf["E_Ma_parent"] <= INF_MAX]
+        df_final_inf = df_final_inf[df_final_inf["E_Ca_iso"] <= INF_MAX]
 
         # Cleanup columns
         drops = ["match_key", "ID", "unc", "??", "Source"]
